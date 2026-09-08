@@ -25,6 +25,8 @@ export interface Status {
 export interface ChatEvents {
   onMeta?: (m: { recalled: Recalled[]; hasKey: boolean }) => void;
   onToken?: (t: string) => void;
+  onTool?: (t: { name: string; args: string }) => void;
+  onAction?: (a: { type: "open_url"; url: string }) => void;
   onDone?: (d: { remembered: Remembered[] }) => void;
   onError?: (message: string) => void;
 }
@@ -76,6 +78,8 @@ export async function chat(sessionId: string, message: string, ev: ChatEvents): 
           const parsed = JSON.parse(data);
           if (event === "meta") ev.onMeta?.(parsed);
           else if (event === "token") ev.onToken?.(parsed.t);
+          else if (event === "tool") ev.onTool?.(parsed);
+          else if (event === "action") ev.onAction?.(parsed);
           else if (event === "done") ev.onDone?.(parsed);
           else if (event === "error") ev.onError?.(parsed.message);
         } catch {

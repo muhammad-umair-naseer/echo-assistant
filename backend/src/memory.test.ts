@@ -95,7 +95,7 @@ describe("live LLM recall (auto-skipped without GROQ_API_KEY)", () => {
         { role: "system", content: prompt },
         { role: "user", content: question },
       ],
-      50,
+      500,
     );
     expect(withMemory).toContain("Ozymandias");
 
@@ -105,9 +105,21 @@ describe("live LLM recall (auto-skipped without GROQ_API_KEY)", () => {
         { role: "system", content: bare },
         { role: "user", content: question },
       ],
-      50,
+      500,
     );
     expect(withoutMemory).not.toContain("Ozymandias");
     db.close();
   }, 120_000);
+});
+
+describe("tools", () => {
+  it("get_time returns a local timestamp; open_url validates protocols", async () => {
+    const { execTool, validUrl } = await import("./tools.ts");
+    const t = await execTool({ id: "1", type: "function", function: { name: "get_time", arguments: "{}" } });
+    expect(t.result).toMatch(/\d{1,2}[:.]\d{2}/);
+    expect(validUrl("https://example.com")).toBe("https://example.com/");
+    expect(validUrl("javascript:alert(1)")).toBeNull();
+    const bad = await execTool({ id: "2", type: "function", function: { name: "open_url", arguments: '{"url":"ftp://x"}' } });
+    expect(bad.clientAction).toBeUndefined();
+  });
 });

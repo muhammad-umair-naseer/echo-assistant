@@ -12,7 +12,8 @@
 import express from "express";
 import { addMessage, allMemories, deleteMemory, openDb, sessionMessages } from "./db.ts";
 import { buildSystemPrompt, extractFactsHeuristic, remember } from "./memory.ts";
-import { extractFactsLLM, hasKey, MODEL, streamChat, type ChatMessage } from "./llm.ts";
+import { extractFactsLLM, hasKey, MODEL, streamChatEvents, type ChatMessage } from "./llm.ts";
+import { execTool, TOOL_DEFS, type ToolCall } from "./tools.ts";
 
 const PORT = Number(process.env.PORT ?? 8790);
 const db = openDb();
@@ -131,9 +132,30 @@ app.post("/api/chat", async (req, res) => {
       const history = sessionMessages(db, sessionId).map(
         (m) => ({ role: m.role, content: m.content }) as ChatMessage,
       );
-      for await (const token of streamChat([{ role: "system", content: prompt }, ...history])) {
-        reply += token;
-        send("token", { t: token });
+      // Tool loop: stream tokens live; when the model requests tools, execute
+      // them server-side, surface each as an SSE `tool` event (and `action` for
+      // client-side effects like open_url), then let it continue. Max 4 rounds.
+      const convo: ChatMessage[] = [{ role: "system", content: prompt }, ...history];
+      for (let round = 0; round < 4; round++) {
+        let calls: ToolCall[] = [];
+        let roundText = "";
+        for await (const ev of streamChatEvents(convo, TOOL_DEFS)) {
+          if (ev.type === "token") {
+            roundText += ev.t;
+            reply += ev.t;
+            send("token", { t: ev.t });
+          } else {
+            calls = ev.calls;
+          }
+        }
+        if (calls.length === 0) break;
+        convo.push({ role: "assistant", content: roundText || null, tool_calls: calls });
+        for (const call of calls) {
+          send("tool", { name: call.function.name, args: call.function.arguments.slice(0, 200) });
+          const out = await execTool(call);
+          if (out.clientAction) send("action", out.clientAction);
+          convo.push({ role: "tool", content: out.result, tool_call_id: call.id });
+        }
       }
     } else {
       // Keyless: stream the degraded reply word-by-word so the console types it.

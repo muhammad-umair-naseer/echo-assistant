@@ -207,6 +207,15 @@ function MessageCard({ m, onChipClick }: { m: Msg; onChipClick: (ids: number[]) 
             {m.recalled[0]!.fact.length > 42 ? "…" : ""}” {(m.recalled[0]!.score * 100).toFixed(0)}%
           </button>
         )}
+        {m.tools && m.tools.length > 0 && (
+          <div className="chip-row" style={{ marginBottom: 6 }}>
+            {m.tools.map((t, i) => (
+              <span key={i} className="chip chip-tool">
+                ⚙ {t.name}
+              </span>
+            ))}
+          </div>
+        )}
         <p className="msg-text">
           {m.text}
           {m.streaming && <span className="cursor" aria-hidden="true" />}

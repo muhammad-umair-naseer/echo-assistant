@@ -28,6 +28,7 @@ export interface Msg {
   text: string;
   recalled?: Recalled[];
   remembered?: Remembered[];
+  tools?: { name: string; args: string }[];
   streaming?: boolean;
 }
 
@@ -211,6 +212,16 @@ export function useEcho() {
             streamer?.push(t);
             setPhase("streaming");
             if (echoId >= 0) patch(echoId, { text: acc });
+          },
+          onTool: (tool) => {
+            setPhase("streaming");
+            if (echoId >= 0)
+              setMessages((ms) =>
+                ms.map((m) => (m.id === echoId ? { ...m, tools: [...(m.tools ?? []), tool] } : m)),
+              );
+          },
+          onAction: (a) => {
+            if (a.type === "open_url") window.open(a.url, "_blank", "noopener");
           },
           onDone: ({ remembered }) => {
             settled = true;
