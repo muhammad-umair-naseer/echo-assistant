@@ -163,6 +163,11 @@ function MemoryPanel({
   const fileRef = useRef<HTMLInputElement>(null);
 
   const cats = useMemo(() => [...new Set(memories.map((m) => m.category))].sort(), [memories]);
+  // A selected category can vanish (its last card deleted) while its filter is
+  // active — reset it, or the panel is stuck on "no matches" with no chips shown.
+  useEffect(() => {
+    if (cat && !cats.includes(cat)) setCat(null);
+  }, [cats, cat]);
   const shown = useMemo(
     () =>
       [...memories]

@@ -63,7 +63,9 @@ export async function importMemories(items: { fact: string; category?: string }[
     headers: { "content-type": "application/json" },
     body: JSON.stringify(items),
   });
-  return res.json();
+  const json = (await res.json().catch(() => ({}))) as { imported?: number; error?: string };
+  if (!res.ok) throw new Error(json.error ?? `import failed (http ${res.status})`);
+  return { imported: json.imported ?? 0 };
 }
 
 export async function removeMemory(id: number): Promise<boolean> {

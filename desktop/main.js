@@ -30,14 +30,20 @@ let win = null;
 
 function findNode() {
   try {
-    // Finder-launched apps get a bare PATH — ask a login shell where node lives.
-    return execSync('/bin/zsh -lc "which node"', { encoding: "utf8" }).trim();
+    // Finder-launched apps get a bare PATH — ask a login shell where node
+    // lives. The login shell may print banners (nvm, greetings) before the
+    // path, so take the LAST non-empty line and verify it actually exists.
+    const out = execSync('/bin/zsh -lc "which node"', { encoding: "utf8" });
+    const lines = out.split("\n").map((l) => l.trim()).filter(Boolean);
+    const candidate = lines[lines.length - 1];
+    if (candidate && existsSync(candidate)) return candidate;
   } catch {
-    for (const p of ["/usr/local/bin/node", "/opt/homebrew/bin/node", "/usr/bin/node"]) {
-      if (existsSync(p)) return p;
-    }
-    return null;
+    /* fall through to the fixed candidates */
   }
+  for (const p of ["/usr/local/bin/node", "/opt/homebrew/bin/node", "/usr/bin/node"]) {
+    if (existsSync(p)) return p;
+  }
+  return null;
 }
 
 function ping() {
@@ -66,6 +72,9 @@ async function ensureBackend() {
   });
   backend.on("exit", () => {
     backend = null;
+  });
+  backend.on("error", () => {
+    backend = null; // spawn failure degrades to the error page, not a crash dialog
   });
 
   for (let i = 0; i < 60; i++) {

@@ -110,7 +110,7 @@ export function listSessions(db: Database.Database, limit = 50): SessionSummary[
   return db
     .prepare(
       `SELECT session_id,
-              COALESCE((SELECT content FROM messages m2
+              COALESCE((SELECT SUBSTR(content, 1, 120) FROM messages m2
                         WHERE m2.session_id = m.session_id AND m2.role = 'user'
                         ORDER BY m2.id LIMIT 1), '(no messages)') AS preview,
               COUNT(*) AS count,

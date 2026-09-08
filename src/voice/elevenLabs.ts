@@ -41,10 +41,7 @@ export class ElevenLabsTts implements TtsProvider {
     while (this.queue.length > 0 && gen === this.generation) {
       const item = this.queue.shift()!;
       const blob = await item.audio;
-      if (gen !== this.generation) {
-        item.cb?.onDone?.();
-        break;
-      }
+      if (gen !== this.generation) break; // cancelled — its callbacks were settled by cancel()
       if (!blob) {
         item.cb?.onDone?.(); // fetch failed — skip, keep the queue moving
         continue;
@@ -59,10 +56,14 @@ export class ElevenLabsTts implements TtsProvider {
         void el.play().catch(() => resolve());
       });
       URL.revokeObjectURL(url);
+      // A stale (cancelled) pump must not touch state a NEWER pump now owns —
+      // clearing `playing` here allowed two concurrent loops and un-cancellable
+      // overlapping speech.
+      if (gen !== this.generation) break;
       this.current = null;
       item.cb?.onDone?.();
     }
-    this.playing = false;
+    if (gen === this.generation) this.playing = false;
   }
 
   cancel(): void {

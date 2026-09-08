@@ -49,8 +49,9 @@ export class WakeListener {
   async start(cb: WakeCallbacks): Promise<void> {
     if (this.running) return;
     this.running = true;
+    let stream: MediaStream;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
     } catch (err) {
@@ -58,7 +59,22 @@ export class WakeListener {
       cb.onError((err as Error).name === "NotAllowedError" ? "microphone permission denied" : (err as Error).message);
       return;
     }
+    // stop() may have been called while we awaited the permission prompt —
+    // without this check the mic stays captured forever with wake shown off.
+    if (!this.running) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    this.stream = stream;
     this.ctx = new AudioContext();
+    // Chrome starts a no-user-activation AudioContext suspended: the analyser
+    // would read zeros forever and wake would be silently dead after a reload.
+    if (this.ctx.state === "suspended") {
+      void this.ctx.resume();
+      const kick = () => void this.ctx?.resume();
+      window.addEventListener("pointerdown", kick, { once: true });
+      window.addEventListener("keydown", kick, { once: true });
+    }
     const src = this.ctx.createMediaStreamSource(this.stream);
     const analyser = this.ctx.createAnalyser();
     analyser.fftSize = 512;

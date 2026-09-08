@@ -350,6 +350,10 @@ export function useEcho() {
    *  id is adopted, so the backend's short-term context continues from it. */
   const loadSession = useCallback(
     async (id: string) => {
+      if (busy.current) {
+        push({ role: "sys", text: "(finish or wait for the current reply before switching sessions)" });
+        return;
+      }
       const rows = await getSession(id).catch(() => null);
       if (!rows) {
         push({ role: "err", text: "couldn't load that session" });

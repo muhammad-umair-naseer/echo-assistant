@@ -9,7 +9,14 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PLIST="$HOME/Library/LaunchAgents/dev.umair.jarvis.plist"
-NODE_BIN="$(/bin/zsh -lc 'which node')"
+# login shells can print banners before the path — keep the last line, verify it
+NODE_BIN="$(/bin/zsh -lc 'which node' | tail -1)"
+if [[ ! -x "$NODE_BIN" ]]; then
+  for cand in /usr/local/bin/node /opt/homebrew/bin/node /usr/bin/node; do
+    [[ -x "$cand" ]] && NODE_BIN="$cand" && break
+  done
+fi
+[[ -x "$NODE_BIN" ]] || { echo "error: node not found — install Node.js first"; exit 1; }
 
 if [[ "${1:-}" == "remove" ]]; then
   launchctl unload "$PLIST" 2>/dev/null || true

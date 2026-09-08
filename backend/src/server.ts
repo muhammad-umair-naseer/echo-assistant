@@ -74,7 +74,10 @@ app.post("/api/transcribe", express.raw({ type: () => true, limit: "20mb" }), as
     return;
   }
   const audio = req.body as Buffer;
-  if (!audio || audio.length < 100) {
+  // Buffer.isBuffer matters: a JSON content-type request gets parsed by the
+  // global express.json() first, leaving a plain object whose .length is
+  // undefined — which sails past a bare length check.
+  if (!Buffer.isBuffer(audio) || audio.length < 100) {
     res.status(400).json({ error: "no audio received" });
     return;
   }
@@ -140,8 +143,20 @@ app.post("/api/memory/import", async (req, res) => {
     res.status(400).json({ error: "expected a JSON array of {fact, category?}" });
     return;
   }
+  const CATS = new Set(["identity", "preference", "project", "relationship", "context", "misc"]);
   const facts = body
-    .filter((f): f is { fact: string; category?: string } => !!f && typeof (f as { fact?: unknown }).fact === "string")
+    .filter(
+      (f): f is { fact: string; category?: string } =>
+        !!f &&
+        typeof (f as { fact?: unknown }).fact === "string" &&
+        (f as { fact: string }).fact.trim().length >= 4 &&
+        (f as { fact: string }).fact.length <= 300,
+    )
+    .map((f) => ({
+      fact: f.fact.trim(),
+      // only known categories survive; anything else re-categorizes heuristically
+      category: typeof f.category === "string" && CATS.has(f.category) ? f.category : undefined,
+    }))
     .slice(0, 500);
   const stored = await remember(db, facts, "import");
   res.json({ imported: stored.length, skippedAsDuplicate: facts.length - stored.length });
@@ -180,7 +195,9 @@ app.post("/api/chat", async (req, res) => {
       // them server-side, surface each as an SSE `tool` event (and `action` for
       // client-side effects like open_url), then let it continue. Max 4 rounds.
       const convo: ChatMessage[] = [{ role: "system", content: prompt }, ...history];
-      for (let round = 0; round < 4; round++) {
+      const MAX_ROUNDS = 4;
+      let endedOnTools = false;
+      for (let round = 0; round < MAX_ROUNDS; round++) {
         let calls: ToolCall[] = [];
         let roundText = "";
         for await (const ev of streamChatEvents(convo, TOOL_DEFS)) {
@@ -192,13 +209,28 @@ app.post("/api/chat", async (req, res) => {
             calls = ev.calls;
           }
         }
-        if (calls.length === 0) break;
+        if (calls.length === 0) {
+          endedOnTools = false;
+          break;
+        }
         convo.push({ role: "assistant", content: roundText || null, tool_calls: calls });
         for (const call of calls) {
           send("tool", { name: call.function.name, args: call.function.arguments.slice(0, 200) });
           const out = await execTool(call);
           if (out.clientAction) send("action", out.clientAction);
           convo.push({ role: "tool", content: out.result, tool_call_id: call.id });
+        }
+        endedOnTools = true;
+      }
+      // If the loop budget ran out right after tool calls, the results are in
+      // convo but no answer was streamed — force one closing completion WITHOUT
+      // tools so the turn never ends silent.
+      if (endedOnTools) {
+        for await (const ev of streamChatEvents(convo)) {
+          if (ev.type === "token") {
+            reply += ev.t;
+            send("token", { t: ev.t });
+          }
         }
       }
     } else {
@@ -236,7 +268,16 @@ app.post("/api/chat", async (req, res) => {
 const DIST = resolve(dirname(fileURLToPath(import.meta.url)), "../../dist");
 if (existsSync(DIST)) {
   app.use(express.static(DIST));
-  app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(resolve(DIST, "index.html")));
+  // SPA fallback for ROUTES only. Paths with a file extension (a missing hashed
+  // bundle after a rebuild) must 404 — serving index.html as a .js module both
+  // breaks the import and lets the service worker cache HTML under a JS URL.
+  app.get(/^\/(?!api\/).*/, (req, res) => {
+    if (/\.[a-zA-Z0-9]+$/.test(req.path)) {
+      res.status(404).end();
+      return;
+    }
+    res.sendFile(resolve(DIST, "index.html"));
+  });
   console.log("serving built frontend from /dist");
 }
 
