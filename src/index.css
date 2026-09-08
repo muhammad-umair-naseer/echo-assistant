@@ -1,0 +1,164 @@
+/* ECHO — CRT phosphor terminal. One metaphor held everywhere: discrete,
+   mechanical, green-on-black. Motion is stepped (character/line cadence),
+   never tweened glyphs; the only continuous motion is the sub-8% scan sweep. */
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/700.css";
+
+:root {
+  /* phosphor palette (slightly warm black; never pure #000) */
+  --bg: #070c08;
+  --bg-raised: #0a120c;
+  --phosphor: #4af585;      /* primary green */
+  --phosphor-dim: #2c7a4b;  /* chrome, borders, secondary text */
+  --phosphor-faint: #17402a;
+  --amber: #ffb454;         /* the ONE accent: memory events + warnings */
+  --red: #ff5f56;
+  --glow: 0 0 6px rgba(74, 245, 133, 0.35);
+
+  /* motion tokens */
+  --dur-instant: 90ms;
+  --dur-fast: 150ms;
+  --dur-base: 220ms;
+  --dur-slow: 340ms;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+
+  --font: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+body {
+  background: var(--bg);
+  color: var(--phosphor);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+::selection {
+  background: var(--phosphor);
+  color: var(--bg);
+}
+
+/* CRT overlay: static scanlines + vignette (cheap: no animated filters). */
+.crt::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0px,
+    rgba(0, 0, 0, 0) 2px,
+    rgba(0, 0, 0, 0.14) 3px
+  );
+  z-index: 3;
+}
+.crt::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 58%, rgba(0, 0, 0, 0.42) 100%);
+  z-index: 4;
+}
+
+/* One slow phosphor sweep — transform-only, single element, sub-8% opacity. */
+.sweep {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: -10%;
+  height: 22vh;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, rgba(74, 245, 133, 0.05), transparent);
+  animation: sweep 9s linear infinite;
+  z-index: 2;
+}
+@keyframes sweep {
+  to {
+    transform: translate3d(0, 130vh, 0);
+  }
+}
+
+/* Blinking block cursor — a state signal, so it stays under reduced motion. */
+.cursor {
+  display: inline-block;
+  width: 0.62em;
+  height: 1.15em;
+  vertical-align: text-bottom;
+  background: var(--phosphor);
+  box-shadow: var(--glow);
+  animation: blink 1.06s steps(1) infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sweep {
+    display: none;
+  }
+  /* boot collapses to instant in JS via matchMedia; cursor blink is state and stays */
+}
+
+/* ---- terminal layout ---- */
+.term {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.bar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--phosphor-faint);
+  background: var(--bg-raised);
+  text-shadow: var(--glow);
+  user-select: none;
+}
+.bar-title { font-weight: 700; letter-spacing: 0.08em; }
+.bar-dim { color: var(--phosphor-dim); }
+.bar-ok { color: var(--phosphor); }
+.bar-warn { color: var(--amber); }
+
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--phosphor-faint) transparent;
+}
+.line { white-space: pre-wrap; word-break: break-word; min-height: 1.55em; }
+.line.sys { color: var(--phosphor-dim); }
+.line.user { color: var(--phosphor); }
+.line.echo { color: var(--phosphor); text-shadow: var(--glow); }
+.line.mem { color: var(--amber); opacity: 0.85; }
+.line.err { color: var(--red); }
+
+.inputrow { display: flex; align-items: baseline; }
+.prompt { color: var(--phosphor-dim); user-select: none; }
+.input {
+  font: inherit;
+  color: var(--phosphor);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  caret-color: transparent; /* we draw our own block cursor */
+  text-shadow: var(--glow);
+  min-width: 1ch;
+  max-width: 60ch;
+}
