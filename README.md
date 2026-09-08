@@ -8,8 +8,9 @@ fact was extracted, embedded, and **retrieved**.
 React + Vite + TypeScript · Node + TypeScript · Groq (chat) · local embeddings
 (transformers.js) · SQLite · Vitest.
 
-> Phase 1 (memory brain) and Phase 2 (voice) shipped · Phase 3 (console polish +
-> memory inspector) upcoming.
+![boot sequence, a recall question answered from a past session's memory, and the /memory inspector](docs/demo.gif)
+
+> All three phases shipped: the memory brain, voice, and the console.
 
 ---
 
@@ -104,6 +105,15 @@ Optional: `cp backend/.env.example backend/.env` and add your `GROQ_API_KEY`.
 while fact extraction (regex heuristics), embedding, storage, retrieval and the
 memory proof all keep working.
 
+## The console
+
+`/help` draws the command panel · `/memory` lists every stored fact with id,
+source and date — **the hard part made visible** — and `/memory rm <id>` erases
+one · `/clear` wipes the screen and starts a fresh session id (memories survive
+it, demonstrably) · `/voice` toggles spoken replies. CRT power-on unfold, boot
+sequence, scanlines, phosphor glow, block cursor; reduced-motion collapses
+decoration and keeps state signals.
+
 ## Voice
 
 Browser-native, zero keys: STT via `SpeechRecognition` (push-to-talk on the
@@ -145,8 +155,8 @@ The audio layer sits behind `SttProvider`/`TtsProvider` interfaces
   extractor can over- or under-extract. There's no contradiction resolution yet
   ("I moved to Berlin" doesn't retire "I live in Lisbon" — both are stored and
   both can be retrieved).
-- **No memory decay/consolidation.** Memories accumulate until deleted (the
-  Phase-3 inspector adds listing + deletion).
+- **No memory decay/consolidation.** Memories accumulate until deleted via
+  `/memory rm <id>`.
 - **Brute-force retrieval** is O(n) per message — right at personal scale, wrong
   past ~10k memories (swap in sqlite-vec).
 - **Single user, single store, local only.** No auth, no multi-user isolation,
