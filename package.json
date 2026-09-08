@@ -23,7 +23,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
-    "electron": "^44.2.0",
+    "electron": "^37.10.3",
     "electron-builder": "^26.15.3",
     "gifenc": "^1.0.3",
     "html2canvas": "^1.4.1",
@@ -47,6 +47,8 @@
       "target": "dir",
       "icon": "build/icon.png",
       "category": "public.app-category.productivity"
-    }
+    },
+    "electronDist": "node_modules/electron/dist",
+    "electronVersion": "37.10.3"
   }
 }
