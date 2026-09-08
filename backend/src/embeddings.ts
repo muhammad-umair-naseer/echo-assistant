@@ -12,8 +12,7 @@ env.cacheDir = new URL("../data/models", import.meta.url).pathname;
 let extractor: Promise<FeatureExtractionPipeline> | null = null;
 
 function getExtractor(): Promise<FeatureExtractionPipeline> {
-  extractor ??= pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2");
-  return extractor;
+  return (extractor ??= pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2"));
 }
 
 /** Embed one text → unit-length Float32Array(384). */
