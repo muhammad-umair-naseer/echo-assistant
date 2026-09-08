@@ -80,15 +80,15 @@ async function runRecording(): Promise<string> {
     input()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   };
 
-  // boot: capture the overlay + deck entrance as it plays
+  // splash: capture the wordmark, boot steps and exit as they play
   const t0 = performance.now();
-  while (document.querySelector(".boot-overlay") && performance.now() - t0 < 15_000) {
+  while (document.querySelector(".splash") && performance.now() - t0 < 25_000) {
     await cap();
     await sleep(150);
   }
-  await cap(3); // settle on READY
+  await cap(3); // deck entrance settled
 
-  await typeInto("what am I building, and who am I?");
+  await typeInto("what do you remember about me?");
 
   // thinking + streaming: capture until the state pill returns to idle
   // (the deck keeps the composer mounted while streaming)
@@ -101,9 +101,15 @@ async function runRecording(): Promise<string> {
   }
   await cap(6); // hold the finished reply + recall chip
 
-  await typeInto("/memory");
-  await sleep(400);
-  await cap(10); // hold the inspector
+  // second beat: a tool call (⚙ chip appears on the reply)
+  await typeInto("what time is it?");
+  await sleep(250);
+  const t2 = performance.now();
+  while (!stateIdle() && performance.now() - t2 < 30_000) {
+    await cap();
+    await sleep(120);
+  }
+  await cap(10); // hold: reply with tool chip + memory bank on the right
 
   const gif = GIFEncoder();
   for (const f of frames) {
