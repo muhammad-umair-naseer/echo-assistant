@@ -10,6 +10,9 @@
  * (heuristic), storage, and the /api/memory inspector all keep working.
  */
 import express from "express";
+import { existsSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { addMessage, allMemories, deleteMemory, listSessions, openDb, sessionMessages } from "./db.ts";
 import { buildSystemPrompt, extractFactsHeuristic, remember } from "./memory.ts";
 import { extractFactsLLM, hasKey, judgeSupersede, MODEL, streamChatEvents, type ChatMessage } from "./llm.ts";
@@ -226,5 +229,15 @@ app.post("/api/chat", async (req, res) => {
     res.end();
   }
 });
+
+// Serve the built frontend when it exists, so ONE process runs the whole app —
+// `npm run build` once, then `npm run server`, then install the PWA from this
+// origin. Dev keeps using Vite on :5199 with its /api proxy as before.
+const DIST = resolve(dirname(fileURLToPath(import.meta.url)), "../../dist");
+if (existsSync(DIST)) {
+  app.use(express.static(DIST));
+  app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(resolve(DIST, "index.html")));
+  console.log("serving built frontend from /dist");
+}
 
 app.listen(PORT, () => console.log(`echo-assistant backend on http://localhost:${PORT} (key: ${hasKey()})`));
