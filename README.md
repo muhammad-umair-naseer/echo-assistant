@@ -8,7 +8,7 @@ fact was extracted, embedded, and **retrieved**.
 React + Vite + TypeScript · Node + TypeScript · Groq (chat) · local embeddings
 (transformers.js) · SQLite · Vitest.
 
-> Phase 1 (memory brain) shipped · Phase 2 (voice) and Phase 3 (console polish +
+> Phase 1 (memory brain) and Phase 2 (voice) shipped · Phase 3 (console polish +
 > memory inspector) upcoming.
 
 ---
@@ -104,6 +104,25 @@ Optional: `cp backend/.env.example backend/.env` and add your `GROQ_API_KEY`.
 while fact extraction (regex heuristics), embedding, storage, retrieval and the
 memory proof all keep working.
 
+## Voice
+
+Browser-native, zero keys: STT via `SpeechRecognition` (push-to-talk on the
+**◉ mic** button, interim transcript rendered live at the prompt), TTS via
+`speechSynthesis` (toggle **voice:on**). The bar shows a live
+`listening / thinking / streaming / speaking` state; **Esc** cancels capture and
+speech anywhere.
+
+**Latency is kept honest by sentence-streaming the TTS** (`src/voice/sentences.ts`,
+unit-tested): each sentence is spoken the moment its boundary appears in the
+token stream, so the reply is audible while the model is still writing — no
+wait-for-full-text dead air. Boundary detection refuses to split at a chunk that
+merely *ends* with a period ("The value is 3." + "14…"), and clipped fragments
+("Ok.") merge forward instead of being spoken alone.
+
+The audio layer sits behind `SttProvider`/`TtsProvider` interfaces
+(`src/voice/types.ts`) — the planned upgrade path (Groq **Whisper** for STT,
+**ElevenLabs** for TTS) replaces `webSpeech.ts` without touching the terminal.
+
 ## Design decisions
 
 - **Local embeddings, not an embeddings API.** Groq serves chat only, and the
@@ -137,3 +156,6 @@ memory proof all keep working.
   `curl -L -o backend/data/models/Xenova/all-MiniLM-L6-v2/onnx/model_quantized.onnx https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx`
 - **Session transcripts grow unbounded** in SQLite (only the last 40 messages
   are sent as context; older rows just sit there).
+- **Voice quality is the browser's.** speechSynthesis voices vary by OS; STT
+  needs Chrome-family browsers and mic permission, and there's no barge-in
+  (speaking over ECHO doesn't interrupt it — Esc does).
