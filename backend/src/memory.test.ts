@@ -57,6 +57,22 @@ describe("retrieval-augmented memory — the proof", () => {
     db.close();
   }, 120_000);
 
+  it("answers meta-queries ('what do you remember about me?') with the whole profile", async () => {
+    const db = openDb(tmpDb());
+    await remember(
+      db,
+      ["my name is Ozymandias Vane", "I'm building a submarine drone", "my dog is called Biscuit"],
+      "heuristic",
+    );
+    // Topically distant from every specific fact — similarity alone returns
+    // little or nothing; the meta-query path must return everything instead.
+    const all = await recall(db, "what do you remember about me?");
+    expect(all.length).toBe(3);
+    const who = await recall(db, "who am I?");
+    expect(who.length).toBe(3);
+    db.close();
+  }, 120_000);
+
   it("dedups near-identical facts instead of storing them twice", async () => {
     const db = openDb(tmpDb());
     const first = await remember(db, ["my name is Ozymandias Vane"], "heuristic");

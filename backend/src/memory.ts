@@ -84,16 +84,25 @@ export async function remember(
   return stored;
 }
 
-/** Retrieve the top-k memories relevant to a query. Scores every row (exact). */
+/** "Tell me what you know about me" — a profile dump, not a topical lookup.
+ *  Similarity retrieval is the wrong tool for it: the question is semantically
+ *  distant from every SPECIFIC fact, so scores fall below the floor and the
+ *  assistant would honestly claim it knows nothing while the bank is full. */
+const META_QUERY =
+  /\bwhat (?:do|can|did) you (?:remember|know)\b|\bremember (?:anything )?about me\b|\bknow about me\b|\bwho am i\b|\bmy profile\b|\beverything you (?:know|remember)\b/i;
+const META_CAP = 12;
+
+/** Retrieve the top-k memories relevant to a query. Scores every row (exact).
+ *  Meta-queries about the user return the whole profile (capped) instead. */
 export async function recall(db: Database.Database, query: string, k = TOP_K): Promise<RecalledMemory[]> {
   const rows = allMemories(db);
   if (rows.length === 0) return [];
   const qvec = await embed(query);
-  return rows
+  const scored = rows
     .map((r) => ({ id: r.id, fact: r.fact, score: cosine(qvec, embeddingOf(r)) }))
-    .filter((m) => m.score >= MIN_SCORE)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, k);
+    .sort((a, b) => b.score - a.score);
+  if (META_QUERY.test(query)) return scored.slice(0, META_CAP);
+  return scored.filter((m) => m.score >= MIN_SCORE).slice(0, k);
 }
 
 export const BASE_SYSTEM_PROMPT =
