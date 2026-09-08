@@ -43,6 +43,7 @@ export function useEcho() {
   const [interim, setInterim] = useState("");
   const [speaking, setSpeaking] = useState(0);
   const [voiceOn, setVoiceOn] = useState(() => localStorage.getItem("echo-voice") === "1");
+  const [statusSettled, setStatusSettled] = useState(false); // the splash gates on real readiness
 
   const sessionId = useRef<string>(crypto.randomUUID());
   const webStt = useRef(new WebSpeechStt());
@@ -62,7 +63,10 @@ export function useEcho() {
   }, []);
 
   const refreshStatus = useCallback(() => {
-    getStatus().then(setStatus).catch(() => setStatus(null));
+    getStatus()
+      .then(setStatus)
+      .catch(() => setStatus(null))
+      .finally(() => setStatusSettled(true));
   }, []);
   const refreshMemories = useCallback(() => {
     listMemories().then(setMemories).catch(() => {});
@@ -284,6 +288,7 @@ export function useEcho() {
   return {
     messages,
     status,
+    statusSettled,
     memories,
     recentMemIds,
     state,

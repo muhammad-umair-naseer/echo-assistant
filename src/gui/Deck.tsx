@@ -2,62 +2,112 @@ import { useEffect, useRef, useState } from "react";
 import { useEcho, type EchoState, type Msg } from "../useEcho.ts";
 import type { MemoryItem } from "../api.ts";
 
-/* ================= boot overlay — the one orchestrated moment ============= */
-
-const BOOT_LINES = [
-  "ECHO ▮ personal assistant kernel v0.4.0",
-  "memory core ......... online",
-  "voice io ............ ready",
-  "READY.",
-];
+/* ================= splash — the one orchestrated moment =================== */
 
 const reducedMotion = () =>
   typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-function BootOverlay({ onDone }: { onDone: () => void }) {
-  const [shown, setShown] = useState(0);
+const WORD = "JARVIS";
+
+function Splash({
+  ready,
+  statusLine,
+  memLine,
+  voiceLine,
+  onDone,
+}: {
+  ready: boolean;
+  statusLine: string;
+  memLine: string;
+  voiceLine: string;
+  onDone: () => void;
+}) {
+  const [step, setStep] = useState(0); // 0..4 boot steps
+  const [online, setOnline] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
 
   useEffect(() => {
     if (reducedMotion()) {
       onDone();
       return;
     }
-    let i = 0;
-    const t = setInterval(() => {
-      i++;
-      setShown(i);
-      if (i >= BOOT_LINES.length) {
-        clearInterval(t);
-        setTimeout(() => setLeaving(true), 350);
-        setTimeout(onDone, 750);
-      }
-    }, 260);
+    let dead = false;
+    // ?splash=slow stretches the timeline 6x — for demos/recording (dev aid).
+    const slow = new URLSearchParams(location.search).get("splash") === "slow" ? 6 : 1;
+    const t0 = performance.now();
+    const finish = () => {
+      if (dead) return;
+      setOnline(true);
+      setTimeout(() => setLeaving(true), 620 * slow);
+      setTimeout(() => !dead && onDone(), 1080 * slow);
+    };
+    const tick = setInterval(() => {
+      setStep((s) => {
+        // step 1 (interface) is free; the data steps gate on REAL readiness —
+        // the bar only fills with the truth. After 6s, proceed with whatever
+        // the status line says (backend-down reads as such).
+        const waitedTooLong = performance.now() - t0 > 6000 * slow;
+        if (s >= 1 && !readyRef.current && !waitedTooLong) return s;
+        const next = Math.min(4, s + 1);
+        if (next === 4) {
+          clearInterval(tick);
+          finish();
+        }
+        return next;
+      });
+    }, 340 * slow);
     const skip = () => {
-      clearInterval(t);
+      clearInterval(tick);
       setLeaving(true);
-      setTimeout(onDone, 200);
+      setTimeout(() => !dead && onDone(), 220);
     };
     window.addEventListener("keydown", skip, { once: true });
     window.addEventListener("pointerdown", skip, { once: true });
     return () => {
-      clearInterval(t);
+      dead = true;
+      clearInterval(tick);
       window.removeEventListener("keydown", skip);
       window.removeEventListener("pointerdown", skip);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const steps = [
+    "initializing interface",
+    `linking neural core ......... ${statusLine}`,
+    `memory bank ................. ${memLine}`,
+    `voice io .................... ${voiceLine}`,
+  ];
+
   return (
-    <div className={`boot-overlay ${leaving ? "leave" : ""}`} aria-hidden="true">
-      <div className="boot-box">
-        <div className="boot-logo">ECHO_</div>
-        {BOOT_LINES.slice(0, shown).map((l, i) => (
-          <div key={i} className="boot-line">
-            {l}
+    <div className={`splash ${leaving ? "leave" : ""}`} aria-hidden="true">
+      <div className="reactor" aria-hidden="true">
+        <span className="arc a1" />
+        <span className="arc a2" />
+        <span className="arc a3" />
+      </div>
+      <div className="splash-word" aria-hidden="true">
+        {WORD.split("").map((ch, i) => (
+          <span key={i} className="lt">
+            <span style={{ ["--d" as string]: `${i * 65}ms` }}>{ch}</span>
+          </span>
+        ))}
+      </div>
+      <div className="splash-tag">personal assistant · long-term memory · voice</div>
+      <div className="splash-steps">
+        {steps.slice(0, step).map((s, i) => (
+          <div key={i} className="splash-step">
+            <span className="step-glyph">▸</span> {s}
           </div>
         ))}
       </div>
+      <div className="splash-progress">
+        <span style={{ transform: `scaleX(${step / 4})` }} />
+      </div>
+      <div className={`splash-online ${online ? "show" : ""}`}>● ONLINE</div>
+      <div className="splash-skip">press any key to skip</div>
     </div>
   );
 }
@@ -216,12 +266,20 @@ export function Deck() {
   return (
     <div className="crt deck-root">
       <div className="sweep" aria-hidden="true" />
-      {!booted && <BootOverlay onDone={() => setBooted(true)} />}
+      {!booted && (
+        <Splash
+          ready={echo.statusSettled}
+          statusLine={echo.status ? (online ? echo.status.model : "NO KEY — memory still on") : "backend unreachable"}
+          memLine={echo.status ? `${echo.status.memories} facts indexed` : "–"}
+          voiceLine={echo.sttAvailable ? `stt: ${echo.sttName}` : "unavailable"}
+          onDone={() => setBooted(true)}
+        />
+      )}
 
       <div className={`deck ${booted ? "in" : ""}`}>
         <header className="deck-bar" style={{ ["--i" as string]: 0 }}>
           <span className="logo">
-            ECHO<span className="logo-cursor">_</span>
+            JARVIS<span className="logo-cursor">_</span>
           </span>
           <span className={`pill ${online ? "pill-ok" : "pill-warn"}`}>
             {echo.status ? (online ? `● ${echo.status.model}` : "○ NO KEY") : "○ backend?"}
@@ -303,7 +361,7 @@ export function Deck() {
                   onKeyDown={(e) => e.key === "Enter" && submit()}
                   spellCheck={false}
                   autoComplete="off"
-                  aria-label="message ECHO"
+                  aria-label="message JARVIS"
                   autoFocus
                 />
                 <button
