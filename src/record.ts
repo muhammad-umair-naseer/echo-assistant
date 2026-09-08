@@ -47,7 +47,7 @@ async function runRecording(): Promise<string> {
       // #root→.term all 100%), leaving .term 3px tall and frames black — pin
       // explicit pixel heights on the clone.
       onclone: (doc) => {
-        for (const sel of ["html", "body", "#root", ".term"]) {
+        for (const sel of ["html", "body", "#root", ".deck-root", ".deck"]) {
           const el = doc.querySelector<HTMLElement>(sel);
           if (el) el.style.height = `${innerHeight}px`;
         }
@@ -65,7 +65,7 @@ async function runRecording(): Promise<string> {
     for (let i = 0; i < hold; i++) frames.push(frame); // hold = longer on-screen time
   };
 
-  const input = () => document.querySelector<HTMLInputElement>("input.input");
+  const input = () => document.querySelector<HTMLInputElement>(".composer-input");
   const typeInto = async (text: string) => {
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
     for (let i = 1; i <= text.length; i++) {
@@ -80,9 +80,9 @@ async function runRecording(): Promise<string> {
     input()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   };
 
-  // boot: capture the typing sequence as it happens
+  // boot: capture the overlay + deck entrance as it plays
   const t0 = performance.now();
-  while ((!input() || input()!.disabled) && performance.now() - t0 < 15_000) {
+  while (document.querySelector(".boot-overlay") && performance.now() - t0 < 15_000) {
     await cap();
     await sleep(150);
   }
@@ -90,13 +90,16 @@ async function runRecording(): Promise<string> {
 
   await typeInto("what am I building, and who am I?");
 
-  // thinking + streaming: capture until the input row returns
+  // thinking + streaming: capture until the state pill returns to idle
+  // (the deck keeps the composer mounted while streaming)
+  const stateIdle = () => document.querySelector(".state-pill")?.textContent?.includes("idle") ?? true;
+  await sleep(250);
   const t1 = performance.now();
-  while (!input() && performance.now() - t1 < 30_000) {
+  while (!stateIdle() && performance.now() - t1 < 30_000) {
     await cap();
     await sleep(120);
   }
-  await cap(6); // hold the finished reply + [mem?] line
+  await cap(6); // hold the finished reply + recall chip
 
   await typeInto("/memory");
   await sleep(400);
