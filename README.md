@@ -105,14 +105,31 @@ Optional: `cp backend/.env.example backend/.env` and add your `GROQ_API_KEY`.
 while fact extraction (regex heuristics), embedding, storage, retrieval and the
 memory proof all keep working.
 
-## The console
+## The interface — the command deck
 
-`/help` draws the command panel · `/memory` lists every stored fact with id,
-source and date — **the hard part made visible** — and `/memory rm <id>` erases
-one · `/clear` wipes the screen and starts a fresh session id (memories survive
-it, demonstrably) · `/voice` toggles spoken replies. CRT power-on unfold, boot
-sequence, scanlines, phosphor glow, block cursor; reduced-motion collapses
-decoration and keeps state signals.
+Not a chat-bubble app and not a bare log: an animated command deck that keeps
+the phosphor-terminal identity. A boot overlay plays once, panels rise in on a
+staggered beat, then the screen goes still except state:
+
+- **Chat panel** — streaming message cards; each reply carries an amber
+  **⟲ recalled** chip (click it to flash the matching cards in the memory bank)
+  and green **+mem** chips when new facts were stored.
+- **MEMORY BANK sidebar** — the hard problem permanently on screen: every fact
+  as a card with source and date, hover-reveal delete, amber slide-in when a
+  fact is stored mid-conversation.
+- **Voice orb** — breathes when idle, pulses amber rings while listening, spins
+  while thinking, plays equalizer bars while speaking. Click it to talk.
+- **Composer** — type `/` for a clickable command menu; suggestion chips on the
+  empty state; mic + send buttons.
+
+All motion is transform/opacity on shared duration/easing tokens; entrances
+animate *from* hidden (a paused animation can never strand a panel invisible);
+reduced-motion keeps state signals and drops decoration.
+
+## The console commands
+
+`/help` · `/memory` (+ `rm <id>`) · `/clear` (new session — memories survive) ·
+`/voice`, all with a clickable slash-menu in the composer.
 
 ## Voice
 
@@ -160,6 +177,10 @@ the terminal (`groqWhisper.ts` implements the same contract as `webSpeech.ts`).
 
 ## Honest limitations
 
+- **Meta vs topical retrieval is a heuristic.** "What do you remember about
+  me?" is answered by a profile dump (regex-detected) because similarity search
+  genuinely can't match a meta-question to specific facts; the regex won't catch
+  every phrasing of that question.
 - **Fact extraction is imperfect.** Heuristics miss rephrasings; the LLM
   extractor can over- or under-extract. There's no contradiction resolution yet
   ("I moved to Berlin" doesn't retire "I live in Lisbon" — both are stored and
