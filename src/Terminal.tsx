@@ -41,9 +41,12 @@ export function Terminal() {
     return new Promise((resolve) => {
       const id = nextId++;
       setLines((ls) => [...ls, { id, kind, text: "" }]);
-      let i = 0;
+      const start = performance.now();
+      const msPerChar = cps / 3; // ~0.75 chars/ms budget — mechanical, quick
       const tick = setInterval(() => {
-        i = Math.min(text.length, i + 3); // 3 chars per tick — mechanical, quick
+        // Time-based, not tick-based: background tabs throttle intervals to
+        // ~1Hz, and elapsed-time reveal keeps boot from crawling when hidden.
+        const i = Math.min(text.length, Math.ceil((performance.now() - start) / msPerChar));
         setLines((ls) => ls.map((l) => (l.id === id ? { ...l, text: text.slice(0, i) } : l)));
         if (i >= text.length) {
           clearInterval(tick);
