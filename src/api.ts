@@ -42,6 +42,21 @@ export async function listMemories(): Promise<MemoryItem[]> {
   return (await fetch("/api/memory")).json();
 }
 
+export interface SessionSummary {
+  session_id: string;
+  preview: string;
+  count: number;
+  last: string;
+}
+
+export async function listSessions(): Promise<SessionSummary[]> {
+  return (await fetch("/api/sessions")).json();
+}
+
+export async function getSession(id: string): Promise<{ role: string; content: string }[]> {
+  return (await fetch(`/api/session/${encodeURIComponent(id)}`)).json();
+}
+
 export async function importMemories(items: { fact: string; category?: string }[]): Promise<{ imported: number }> {
   const res = await fetch("/api/memory/import", {
     method: "POST",

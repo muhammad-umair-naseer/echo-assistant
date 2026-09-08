@@ -97,3 +97,25 @@ export function deleteMemory(db: Database.Database, id: number): boolean {
 export function embeddingOf(row: MemoryRow): Float32Array {
   return new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4);
 }
+
+export interface SessionSummary {
+  session_id: string;
+  preview: string;
+  count: number;
+  last: string;
+}
+
+/** Every conversation, newest first: first user line as the preview. */
+export function listSessions(db: Database.Database, limit = 50): SessionSummary[] {
+  return db
+    .prepare(
+      `SELECT session_id,
+              COALESCE((SELECT content FROM messages m2
+                        WHERE m2.session_id = m.session_id AND m2.role = 'user'
+                        ORDER BY m2.id LIMIT 1), '(no messages)') AS preview,
+              COUNT(*) AS count,
+              MAX(created_at) AS last
+       FROM messages m GROUP BY session_id ORDER BY last DESC LIMIT ?`,
+    )
+    .all(limit) as SessionSummary[];
+}

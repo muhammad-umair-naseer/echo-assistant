@@ -311,6 +311,7 @@ export function Deck() {
   const [booted, setBooted] = useState(false);
   const [input, setInput] = useState("");
   const [flashIds, setFlashIds] = useState<number[]>([]);
+  const [showSessions, setShowSessions] = useState(false);
   const feedRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -361,6 +362,15 @@ export function Deck() {
             {echo.status ? (online ? `● ${echo.status.model}` : "○ NO KEY") : "○ backend?"}
           </span>
           <span className="pill pill-dim">stt: {echo.sttName}</span>
+          <button
+            className={`pill pill-btn ${showSessions ? "pill-ok" : ""}`}
+            onClick={() => {
+              setShowSessions((v) => !v);
+              if (!showSessions) echo.refreshSessions();
+            }}
+          >
+            history
+          </button>
           <span className="bar-space" />
           <span className={`pill state-pill st-${echo.state}`} aria-live="polite">
             ▸ {echo.state}
@@ -377,6 +387,34 @@ export function Deck() {
             wake:{echo.wakeOn ? "on" : "off"}
           </button>
         </header>
+
+        {showSessions && (
+          <div className="sessions-pop" role="dialog" aria-label="past sessions">
+            <header className="panel-head">
+              <span>SESSIONS</span>
+              <span className="panel-count">{echo.sessions.length}</span>
+            </header>
+            <div className="sessions-list">
+              {echo.sessions.length === 0 && <div className="mem-empty">no conversations yet.</div>}
+              {echo.sessions.map((s2) => (
+                <button
+                  key={s2.session_id}
+                  className={`session-row ${s2.session_id === echo.currentSession ? "current" : ""}`}
+                  onClick={() => {
+                    void echo.loadSession(s2.session_id);
+                    setShowSessions(false);
+                  }}
+                >
+                  <span className="session-preview">{s2.preview.slice(0, 64)}</span>
+                  <span className="session-meta">
+                    {s2.count} msgs · {s2.last.slice(0, 16)}
+                    {s2.session_id === echo.currentSession ? " · current" : ""}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <main className="deck-main">
           <section className="panel chat-panel" style={{ ["--i" as string]: 1 }}>

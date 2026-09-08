@@ -10,7 +10,7 @@
  * (heuristic), storage, and the /api/memory inspector all keep working.
  */
 import express from "express";
-import { addMessage, allMemories, deleteMemory, openDb, sessionMessages } from "./db.ts";
+import { addMessage, allMemories, deleteMemory, listSessions, openDb, sessionMessages } from "./db.ts";
 import { buildSystemPrompt, extractFactsHeuristic, remember } from "./memory.ts";
 import { extractFactsLLM, hasKey, judgeSupersede, MODEL, streamChatEvents, type ChatMessage } from "./llm.ts";
 import { execTool, TOOL_DEFS, type ToolCall } from "./tools.ts";
@@ -95,6 +95,20 @@ app.post("/api/transcribe", express.raw({ type: () => true, limit: "20mb" }), as
   } catch (err) {
     res.status(502).json({ error: `transcription failed: ${(err as Error).message}` });
   }
+});
+
+app.get("/api/sessions", (_req, res) => {
+  res.json(listSessions(db));
+});
+
+app.get("/api/session/:id", (req, res) => {
+  res.json(
+    sessionMessages(db, req.params.id, 500).map((m) => ({
+      role: m.role,
+      content: m.content,
+      created_at: m.created_at,
+    })),
+  );
 });
 
 app.get("/api/memory", (_req, res) => {

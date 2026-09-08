@@ -7,10 +7,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   chat,
+  getSession,
   getStatus,
   importMemories,
   listMemories,
+  listSessions,
   removeMemory,
+  type SessionSummary,
   type MemoryItem,
   type Recalled,
   type Remembered,
@@ -338,6 +341,32 @@ export function useEcho() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wakeOn, status?.hasKey]);
 
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const refreshSessions = useCallback(() => {
+    listSessions().then(setSessions).catch(() => {});
+  }, []);
+
+  /** Resume a past conversation: its transcript fills the feed and the session
+   *  id is adopted, so the backend's short-term context continues from it. */
+  const loadSession = useCallback(
+    async (id: string) => {
+      const rows = await getSession(id).catch(() => null);
+      if (!rows) {
+        push({ role: "err", text: "couldn't load that session" });
+        return;
+      }
+      silenceAll();
+      sessionId.current = id;
+      setMessages([
+        ...rows
+          .filter((r) => r.role === "user" || r.role === "assistant")
+          .map((r) => ({ id: nextId++, role: (r.role === "user" ? "user" : "echo") as Role, text: r.content })),
+        { id: nextId++, role: "sys" as Role, text: "— resumed session · context continues from here —" },
+      ]);
+    },
+    [push, silenceAll],
+  );
+
   const importFromFile = useCallback(
     async (file: File) => {
       try {
@@ -400,6 +429,10 @@ export function useEcho() {
     toggleVoice,
     deleteMemory,
     importFromFile,
+    sessions,
+    refreshSessions,
+    loadSession,
+    currentSession: sessionId.current,
     cancelVoice,
   };
 }

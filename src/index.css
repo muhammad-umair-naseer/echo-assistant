@@ -503,3 +503,25 @@ body {
 .mem-search::placeholder { color: var(--phosphor-faint); }
 .chip-on { color: var(--phosphor); border-color: var(--phosphor-dim); background: rgba(74, 245, 133, 0.07); }
 .mem-cat { color: var(--phosphor-dim); font-weight: 400; font-style: italic; }
+
+/* sessions overlay */
+.sessions-pop {
+  position: absolute; top: 52px; left: 14px; z-index: 8;
+  width: 430px; max-width: calc(100vw - 28px); max-height: 60vh;
+  display: flex; flex-direction: column;
+  background: var(--bg-raised); border: 1px solid var(--phosphor-dim); border-radius: 12px;
+  overflow: hidden; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  animation: msg-in var(--dur-base) var(--ease-out-expo) backwards;
+}
+.sessions-list { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--phosphor-faint) transparent; }
+.session-row {
+  display: flex; flex-direction: column; gap: 3px; width: 100%;
+  font-family: inherit; text-align: left; cursor: pointer;
+  background: transparent; border: none; border-bottom: 1px solid var(--phosphor-faint);
+  padding: 10px 14px;
+  transition: background-color var(--dur-fast) var(--ease-out-expo);
+}
+.session-row:hover, .session-row:focus-visible { background: rgba(74, 245, 133, 0.06); outline: none; }
+.session-row.current { border-left: 2px solid var(--phosphor); }
+.session-preview { color: var(--phosphor); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-meta { color: var(--phosphor-dim); font-size: 10.5px; }
