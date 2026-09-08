@@ -162,3 +162,31 @@ body {
   min-width: 1ch;
   max-width: 60ch;
 }
+
+/* ---- voice controls + state ---- */
+.bar-right { display: flex; gap: 10px; align-items: center; }
+.bar-state { color: var(--phosphor-dim); min-width: 9ch; }
+.bar-state.st-listening { color: var(--amber); }
+.bar-state.st-thinking { color: var(--phosphor-dim); }
+.bar-state.st-streaming,
+.bar-state.st-speaking { color: var(--phosphor); text-shadow: var(--glow); }
+.bar-btn {
+  font: inherit;
+  font-size: 12px;
+  color: var(--phosphor-dim);
+  background: transparent;
+  border: 1px solid var(--phosphor-faint);
+  border-radius: 3px;
+  padding: 1px 7px;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out-expo), border-color var(--dur-fast) var(--ease-out-expo);
+}
+.bar-btn:hover:not(:disabled),
+.bar-btn:focus-visible {
+  color: var(--phosphor);
+  border-color: var(--phosphor-dim);
+  outline: none;
+}
+.bar-btn:disabled { opacity: 0.35; cursor: default; }
+.bar-btn.on-green { color: var(--phosphor); border-color: var(--phosphor-dim); text-shadow: var(--glow); }
+.bar-btn.on-amber { color: var(--amber); border-color: var(--amber); }

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { chat, getStatus, type Status } from "./api.ts";
+import { SentenceStreamer } from "./voice/sentences.ts";
+import { WebSpeechStt, WebSpeechTts } from "./voice/webSpeech.ts";
 
 type LineKind = "sys" | "user" | "echo" | "mem" | "err";
 interface Line {
@@ -24,9 +26,18 @@ export function Terminal() {
   const [status, setStatus] = useState<Status | null>(null);
   const [spin, setSpin] = useState(0);
 
+  // voice
+  const [voiceOn, setVoiceOn] = useState(() => localStorage.getItem("echo-voice") === "1");
+  const [listening, setListening] = useState(false);
+  const [interim, setInterim] = useState("");
+  const [speaking, setSpeaking] = useState(0); // active/queued utterances
+
   const sessionId = useRef<string>(crypto.randomUUID());
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const stt = useRef(new WebSpeechStt());
+  const tts = useRef(new WebSpeechTts());
+  const busy = useRef(false);
 
   const push = useCallback((kind: LineKind, text: string) => {
     setLines((ls) => [...ls, { id: nextId++, kind, text }]);
@@ -42,7 +53,7 @@ export function Terminal() {
       const id = nextId++;
       setLines((ls) => [...ls, { id, kind, text: "" }]);
       const start = performance.now();
-      const msPerChar = cps / 3; // ~0.75 chars/ms budget — mechanical, quick
+      const msPerChar = cps / 3;
       const tick = setInterval(() => {
         // Time-based, not tick-based: background tabs throttle intervals to
         // ~1Hz, and elapsed-time reveal keeps boot from crawling when hidden.
@@ -63,7 +74,7 @@ export function Terminal() {
       const st = await getStatus().catch(() => null);
       if (cancelled) return;
       setStatus(st);
-      await typeLine("sys", "ECHO ▮ personal assistant kernel v0.1.0");
+      await typeLine("sys", "ECHO ▮ personal assistant kernel v0.2.0");
       await typeLine("sys", `memory core ............ online (${st?.memories ?? 0} facts indexed)`);
       if (st?.hasKey) {
         await typeLine("sys", `llm link ............... ${st.model} via groq · online`);
@@ -71,6 +82,12 @@ export function Terminal() {
         await typeLine("err", "llm link ............... OFFLINE — add GROQ_API_KEY to backend/.env");
         await typeLine("sys", "memory systems operate without the key. facts you state are stored.");
       }
+      await typeLine(
+        "sys",
+        stt.current.available()
+          ? "voice io ............... ready (◉ mic to talk · voice toggle for spoken replies)"
+          : "voice io ............... unavailable in this browser (chat still works)",
+      );
       await typeLine("sys", "READY. type a message. (/commands arrive in phase 3)");
       if (!cancelled) setPhase("idle");
     })();
@@ -79,7 +96,7 @@ export function Terminal() {
     };
   }, [typeLine]);
 
-  // thinking spinner (JS interval only while active — text frames, no tween)
+  // thinking spinner (text frames — terminal metaphor, no tween)
   useEffect(() => {
     if (phase !== "thinking") return;
     const t = setInterval(() => setSpin((s) => (s + 1) % SPINNER.length), 120);
@@ -90,25 +107,85 @@ export function Terminal() {
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [lines, streamText, phase]);
+  }, [lines, streamText, phase, interim, listening]);
 
-  const submit = async () => {
-    const msg = input.trim();
-    if (!msg || phase === "thinking" || phase === "streaming" || phase === "boot") return;
-    setInput("");
+  // Escape cancels listening and speech, anywhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      stt.current.cancel();
+      setListening(false);
+      setInterim("");
+      tts.current.cancel();
+      setSpeaking(0);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const toggleVoice = () => {
+    setVoiceOn((v) => {
+      const next = !v;
+      localStorage.setItem("echo-voice", next ? "1" : "0");
+      if (!next) {
+        tts.current.cancel();
+        setSpeaking(0);
+      }
+      return next;
+    });
+  };
+
+  const mic = () => {
+    if (!stt.current.available() || phase === "boot") return;
+    if (listening) {
+      stt.current.stop(); // finalize what was heard
+      return;
+    }
+    tts.current.cancel(); // don't transcribe our own speech
+    setSpeaking(0);
+    setListening(true);
+    setInterim("");
+    stt.current.start({
+      onPartial: (t) => setInterim(t),
+      onFinal: (t) => void send(t),
+      onEnd: () => {
+        setListening(false);
+        setInterim("");
+      },
+    });
+  };
+
+  const send = async (raw: string) => {
+    const msg = raw.trim();
+    if (!msg || busy.current || phase === "boot") return;
+    busy.current = true;
     push("user", `you@echo:~$ ${msg}`);
 
     if (msg.startsWith("/")) {
       push("sys", "command palette ships in phase 3 — for now, just talk to it.");
+      busy.current = false;
       return;
     }
+
+    // Voice out: speak sentence-by-sentence AS tokens stream, so the reply is
+    // audible before it's finished. Latency honest — no wait-for-full-text.
+    tts.current.cancel();
+    setSpeaking(0);
+    const streamer = voiceOn
+      ? new SentenceStreamer((sentence) =>
+          tts.current.speak(sentence, {
+            onStart: () => setSpeaking((c) => c + 1),
+            onDone: () => setSpeaking((c) => Math.max(0, c - 1)),
+          }),
+        )
+      : null;
 
     setPhase("thinking");
     let acc = "";
     await chat(sessionId.current, msg, {
       onMeta: ({ recalled }) => {
         if (recalled.length > 0) {
-          const top = recalled[0];
+          const top = recalled[0]!;
           push(
             "mem",
             `[mem?] recalled ${recalled.length} fact${recalled.length > 1 ? "s" : ""} · top: "${top.fact}" (${(top.score * 100).toFixed(0)}%)`,
@@ -117,10 +194,12 @@ export function Terminal() {
       },
       onToken: (t) => {
         acc += t;
+        streamer?.push(t);
         setPhase("streaming");
         setStreamText(acc);
       },
       onDone: ({ remembered }) => {
+        streamer?.flush();
         if (acc) push("echo", `echo> ${acc}`);
         for (const m of remembered) push("mem", `[mem+] stored: "${m.fact}"`);
         setStreamText(null);
@@ -128,13 +207,33 @@ export function Terminal() {
         getStatus().then(setStatus).catch(() => {});
       },
       onError: (message) => {
+        streamer?.flush();
         if (acc) push("echo", `echo> ${acc}`);
         push("err", `[err] ${message}`);
         setStreamText(null);
         setPhase("idle");
       },
     });
+    busy.current = false;
   };
+
+  const submit = () => {
+    const msg = input;
+    setInput("");
+    void send(msg);
+  };
+
+  const state = listening
+    ? "listening"
+    : phase === "thinking"
+      ? "thinking"
+      : phase === "streaming"
+        ? speaking > 0
+          ? "speaking"
+          : "streaming"
+        : speaking > 0
+          ? "speaking"
+          : "idle";
 
   return (
     <div className="crt term" onClick={() => inputRef.current?.focus()}>
@@ -142,9 +241,25 @@ export function Terminal() {
 
       <header className="bar">
         <span className="bar-title">ECHO</span>
-        <span className="bar-dim">mem:{status?.memories ?? "–"}</span>
-        <span className={status?.hasKey ? "bar-ok" : "bar-warn"}>
-          {status ? (status.hasKey ? `● ${status.model}` : "○ NO KEY") : "○ backend?"}
+        <span className={`bar-state st-${state}`} aria-live="polite">
+          ▸ {state}
+        </span>
+        <span className="bar-right">
+          <button
+            className={`bar-btn ${listening ? "on-amber" : ""}`}
+            onClick={mic}
+            disabled={!stt.current.available() || phase === "boot"}
+            title={stt.current.available() ? "push to talk (Esc cancels)" : "SpeechRecognition unavailable"}
+          >
+            ◉ mic
+          </button>
+          <button className={`bar-btn ${voiceOn ? "on-green" : ""}`} onClick={toggleVoice} title="spoken replies">
+            voice:{voiceOn ? "on" : "off"}
+          </button>
+          <span className="bar-dim">mem:{status?.memories ?? "–"}</span>
+          <span className={status?.hasKey ? "bar-ok" : "bar-warn"}>
+            {status ? (status.hasKey ? `● ${status.model}` : "○ NO KEY") : "○ backend?"}
+          </span>
         </span>
       </header>
 
@@ -168,7 +283,14 @@ export function Terminal() {
           </div>
         )}
 
-        {(phase === "idle" || phase === "boot") && (
+        {listening && (
+          <div className="line mem">
+            [◉ listening] {interim || "…"}
+            <span className="cursor" aria-hidden="true" />
+          </div>
+        )}
+
+        {(phase === "idle" || phase === "boot") && !listening && (
           <div className="inputrow">
             <span className="prompt">you@echo:~$&nbsp;</span>
             <input
