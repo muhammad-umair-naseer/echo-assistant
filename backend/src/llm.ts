@@ -7,7 +7,9 @@
 import "dotenv/config";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-export const MODEL = "llama-3.3-70b-versatile";
+// Groq rotates its catalogue (llama-3.3-70b-versatile was retired); default to
+// the strongest current open model and let .env override without a code change.
+export const MODEL = process.env.GROQ_MODEL ?? "openai/gpt-oss-120b";
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
