@@ -59,10 +59,9 @@ export class WebSpeechStt implements SttProvider {
       if (final || interim) cb.onPartial(`${final}${interim}`);
     };
     rec.onerror = (ev) => {
-      // 'no-speech' (silence timeout) and 'aborted' (our cancel) are normal;
-      // everything else the user must SEE — Chrome STT is a Google-server call
-      // and can fail on network alone while the mic itself works fine.
-      if (ev.error !== "no-speech" && ev.error !== "aborted") cb.onError?.(ev.error);
+      // Only 'aborted' (our own cancel) stays silent. Even 'no-speech' is
+      // surfaced — "listening but nothing happened" must never be a mystery.
+      if (ev.error !== "aborted") cb.onError?.(ev.error);
     };
     rec.onend = () => {
       this.rec = null;

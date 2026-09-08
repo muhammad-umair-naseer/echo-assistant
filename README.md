@@ -116,9 +116,17 @@ decoration and keeps state signals.
 
 ## Voice
 
-Browser-native, zero keys: STT via `SpeechRecognition` (push-to-talk on the
-**◉ mic** button, interim transcript rendered live at the prompt), TTS via
-`speechSynthesis` (toggle **voice:on**). The bar shows a live
+Two STT engines behind one interface, picked automatically:
+
+- **With a Groq key: Whisper** (`whisper-large-v3-turbo`) — mic audio is
+  recorded locally (MediaRecorder) and transcribed via our backend on the same
+  key as chat. Click **◉ mic**, speak, click again to send (30s cap).
+- **Keyless fallback: Web Speech** — Chrome's built-in recognizer with live
+  interim text. Honest caveat: it streams audio to Google's speech servers and
+  can fail on network alone; every failure is surfaced as an `[err] voice:` line
+  (never a silent "listening but nothing happened").
+
+TTS is `speechSynthesis` (toggle **voice:on**). The bar shows a live
 `listening / thinking / streaming / speaking` state; **Esc** cancels capture and
 speech anywhere.
 
@@ -130,8 +138,9 @@ merely *ends* with a period ("The value is 3." + "14…"), and clipped fragments
 ("Ok.") merge forward instead of being spoken alone.
 
 The audio layer sits behind `SttProvider`/`TtsProvider` interfaces
-(`src/voice/types.ts`) — the planned upgrade path (Groq **Whisper** for STT,
-**ElevenLabs** for TTS) replaces `webSpeech.ts` without touching the terminal.
+(`src/voice/types.ts`) — which is how Whisper STT dropped in without touching
+the terminal (`groqWhisper.ts` implements the same contract as `webSpeech.ts`).
+**ElevenLabs** TTS remains the same kind of swap on the output side.
 
 ## Design decisions
 
@@ -166,6 +175,6 @@ The audio layer sits behind `SttProvider`/`TtsProvider` interfaces
   `curl -L -o backend/data/models/Xenova/all-MiniLM-L6-v2/onnx/model_quantized.onnx https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx`
 - **Session transcripts grow unbounded** in SQLite (only the last 40 messages
   are sent as context; older rows just sit there).
-- **Voice quality is the browser's.** speechSynthesis voices vary by OS; STT
-  needs Chrome-family browsers and mic permission, and there's no barge-in
-  (speaking over ECHO doesn't interrupt it — Esc does).
+- **TTS quality is the browser's.** speechSynthesis voices vary by OS; no
+  barge-in (speaking over ECHO doesn't interrupt it — Esc does). Whisper STT is
+  batch (click-to-send), not live-streaming interims.

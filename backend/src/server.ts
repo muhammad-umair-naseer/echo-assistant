@@ -28,6 +28,42 @@ app.get("/api/status", (_req, res) => {
   res.json({ hasKey: hasKey(), model: MODEL, memories: allMemories(db).length });
 });
 
+const STT_MODEL = process.env.GROQ_STT_MODEL ?? "whisper-large-v3-turbo";
+
+/** Speech-to-text via Groq Whisper — the same key as chat, no Google involved.
+ *  Body: raw audio (webm/opus from MediaRecorder). Returns { text }. */
+app.post("/api/transcribe", express.raw({ type: () => true, limit: "20mb" }), async (req, res) => {
+  if (!hasKey()) {
+    res.status(400).json({ error: "no GROQ_API_KEY — whisper transcription needs it" });
+    return;
+  }
+  const audio = req.body as Buffer;
+  if (!audio || audio.length < 100) {
+    res.status(400).json({ error: "no audio received" });
+    return;
+  }
+  try {
+    const form = new FormData();
+    const type = req.headers["content-type"] ?? "audio/webm";
+    form.append("file", new Blob([new Uint8Array(audio)], { type }), "speech.webm");
+    form.append("model", STT_MODEL);
+    const r = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+      body: form,
+    });
+    if (!r.ok) {
+      const detail = await r.text().catch(() => "");
+      res.status(502).json({ error: `groq whisper ${r.status}: ${detail.slice(0, 200)}` });
+      return;
+    }
+    const json = (await r.json()) as { text?: string };
+    res.json({ text: (json.text ?? "").trim() });
+  } catch (err) {
+    res.status(502).json({ error: `transcription failed: ${(err as Error).message}` });
+  }
+});
+
 app.get("/api/memory", (_req, res) => {
   res.json(
     allMemories(db).map((m) => ({ id: m.id, fact: m.fact, source: m.source, created_at: m.created_at })),

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { chat, getStatus, listMemories, removeMemory, type Status } from "./api.ts";
 import { SentenceStreamer } from "./voice/sentences.ts";
 import { WebSpeechStt, WebSpeechTts } from "./voice/webSpeech.ts";
+import { GroqWhisperStt } from "./voice/groqWhisper.ts";
 
 type LineKind = "sys" | "user" | "echo" | "mem" | "err";
 interface Line {
@@ -36,6 +37,7 @@ export function Terminal() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const stt = useRef(new WebSpeechStt());
+  const whisper = useRef(new GroqWhisperStt());
   const tts = useRef(new WebSpeechTts());
   const busy = useRef(false);
   const activeStreamer = useRef<SentenceStreamer | null>(null); // so Esc/voice-off can mute mid-reply
@@ -85,10 +87,16 @@ export function Terminal() {
       } else {
         await typeLine("err", "backend ................ UNREACHABLE — run: cd backend && npm run server");
       }
+      const engine =
+        st?.hasKey && new GroqWhisperStt().available()
+          ? "whisper-large-v3 via groq"
+          : new WebSpeechStt().available()
+            ? "web speech (browser)"
+            : null;
       await typeLine(
         "sys",
-        stt.current.available()
-          ? "voice io ............... ready (◉ mic to talk · voice toggle for spoken replies)"
+        engine
+          ? `voice io ............... ready · stt: ${engine} (◉ mic to talk)`
           : "voice io ............... unavailable in this browser (chat still works)",
       );
       await typeLine("sys", "READY. type a message · /help for commands");
@@ -118,6 +126,7 @@ export function Terminal() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       stt.current.cancel();
+      whisper.current.cancel();
       setListening(false);
       setInterim("");
       activeStreamer.current?.stop();
@@ -141,17 +150,23 @@ export function Terminal() {
     });
   };
 
+  // Whisper (via our backend + the Groq key) beats Chrome's Google-bound
+  // recognizer whenever it's available; Web Speech is the keyless fallback.
+  const sttEngine = () => (status?.hasKey && whisper.current.available() ? whisper.current : stt.current);
+  const sttAvailable = () => whisper.current.available() || stt.current.available();
+
   const mic = () => {
-    if (!stt.current.available() || phase === "boot") return;
+    const engine = sttEngine();
+    if (!engine.available() || phase !== "idle") return;
     if (listening) {
-      stt.current.stop(); // finalize what was heard
+      engine.stop(); // finalize what was heard (whisper: stop + transcribe)
       return;
     }
     tts.current.cancel(); // don't transcribe our own speech
     setSpeaking(0);
     setListening(true);
     setInterim("");
-    stt.current.start({
+    engine.start({
       onPartial: (t) => setInterim(t),
       onFinal: (t) =>
         void send(t).then((ok) => {
@@ -161,6 +176,7 @@ export function Terminal() {
         const why: Record<string, string> = {
           network:
             "speech service unreachable — Chrome's recognizer sends audio to Google's servers; check network/VPN/firewall",
+          "no-speech": "heard nothing — check the mic input device / level",
           "not-allowed": "microphone permission denied — allow it for this site in the browser",
           "service-not-allowed": "this browser blocks the speech service (Brave/untethered Chromium have no recognizer)",
           "audio-capture": "no usable microphone found",
@@ -352,8 +368,8 @@ export function Terminal() {
           <button
             className={`bar-btn ${listening ? "on-amber" : ""}`}
             onClick={mic}
-            disabled={!stt.current.available() || phase !== "idle"}
-            title={stt.current.available() ? "push to talk (Esc cancels)" : "SpeechRecognition unavailable"}
+            disabled={!sttAvailable() || phase !== "idle"}
+            title={sttAvailable() ? "push to talk — click again to send (Esc cancels)" : "no speech engine in this browser"}
           >
             ◉ mic
           </button>
