@@ -38,6 +38,7 @@ export function Terminal() {
   const stt = useRef(new WebSpeechStt());
   const tts = useRef(new WebSpeechTts());
   const busy = useRef(false);
+  const activeStreamer = useRef<SentenceStreamer | null>(null); // so Esc/voice-off can mute mid-reply
 
   const push = useCallback((kind: LineKind, text: string) => {
     setLines((ls) => [...ls, { id: nextId++, kind, text }]);
@@ -78,9 +79,11 @@ export function Terminal() {
       await typeLine("sys", `memory core ............ online (${st?.memories ?? 0} facts indexed)`);
       if (st?.hasKey) {
         await typeLine("sys", `llm link ............... ${st.model} via groq · online`);
-      } else {
+      } else if (st) {
         await typeLine("err", "llm link ............... OFFLINE — add GROQ_API_KEY to backend/.env");
         await typeLine("sys", "memory systems operate without the key. facts you state are stored.");
+      } else {
+        await typeLine("err", "backend ................ UNREACHABLE — run: cd backend && npm run server");
       }
       await typeLine(
         "sys",
@@ -109,13 +112,15 @@ export function Terminal() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [lines, streamText, phase, interim, listening]);
 
-  // Escape cancels listening and speech, anywhere.
+  // Escape cancels listening and speech, anywhere — including sentences the
+  // streamer hasn't emitted yet (mute it, or speech resumes on the next boundary).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       stt.current.cancel();
       setListening(false);
       setInterim("");
+      activeStreamer.current?.stop();
       tts.current.cancel();
       setSpeaking(0);
     };
@@ -128,6 +133,7 @@ export function Terminal() {
       const next = !v;
       localStorage.setItem("echo-voice", next ? "1" : "0");
       if (!next) {
+        activeStreamer.current?.stop(); // silence the rest of a streaming reply too
         tts.current.cancel();
         setSpeaking(0);
       }
@@ -147,7 +153,10 @@ export function Terminal() {
     setInterim("");
     stt.current.start({
       onPartial: (t) => setInterim(t),
-      onFinal: (t) => void send(t),
+      onFinal: (t) =>
+        void send(t).then((ok) => {
+          if (!ok) push("sys", `(busy — voice input dropped: "${t}")`); // never silent
+        }),
       onEnd: () => {
         setListening(false);
         setInterim("");
@@ -217,72 +226,94 @@ export function Terminal() {
     }
   };
 
-  const send = async (raw: string) => {
+  /** Returns whether the message was accepted (false = busy/boot — caller keeps it). */
+  const send = async (raw: string): Promise<boolean> => {
     const msg = raw.trim();
-    if (!msg || busy.current || phase === "boot") return;
+    if (!msg || busy.current || phase === "boot") return false;
     busy.current = true;
-    push("user", `you@echo:~$ ${msg}`);
-
-    if (msg.startsWith("/")) {
-      await runCommand(msg);
-      busy.current = false;
-      return;
-    }
-
-    // Voice out: speak sentence-by-sentence AS tokens stream, so the reply is
-    // audible before it's finished. Latency honest — no wait-for-full-text.
-    tts.current.cancel();
-    setSpeaking(0);
-    const streamer = voiceOn
-      ? new SentenceStreamer((sentence) =>
-          tts.current.speak(sentence, {
-            onStart: () => setSpeaking((c) => c + 1),
-            onDone: () => setSpeaking((c) => Math.max(0, c - 1)),
-          }),
-        )
-      : null;
-
-    setPhase("thinking");
+    let streamer: SentenceStreamer | null = null;
+    let settled = false;
     let acc = "";
-    await chat(sessionId.current, msg, {
-      onMeta: ({ recalled }) => {
-        if (recalled.length > 0) {
-          const top = recalled[0]!;
-          push(
-            "mem",
-            `[mem?] recalled ${recalled.length} fact${recalled.length > 1 ? "s" : ""} · top: "${top.fact}" (${(top.score * 100).toFixed(0)}%)`,
-          );
-        }
-      },
-      onToken: (t) => {
-        acc += t;
-        streamer?.push(t);
-        setPhase("streaming");
-        setStreamText(acc);
-      },
-      onDone: ({ remembered }) => {
-        streamer?.flush();
+    try {
+      push("user", `you@echo:~$ ${msg}`);
+
+      if (msg.startsWith("/")) {
+        await runCommand(msg);
+        settled = true;
+        return true;
+      }
+
+      // Voice out: speak sentence-by-sentence AS tokens stream, so the reply is
+      // audible before it's finished. Latency honest — no wait-for-full-text.
+      activeStreamer.current?.stop();
+      tts.current.cancel();
+      setSpeaking(0);
+      streamer = voiceOn
+        ? new SentenceStreamer((sentence) =>
+            tts.current.speak(sentence, {
+              onStart: () => setSpeaking((c) => c + 1),
+              onDone: () => setSpeaking((c) => Math.max(0, c - 1)),
+            }),
+          )
+        : null;
+      activeStreamer.current = streamer;
+
+      setPhase("thinking");
+      await chat(sessionId.current, msg, {
+        onMeta: ({ recalled }) => {
+          if (recalled.length > 0) {
+            const top = recalled[0]!;
+            push(
+              "mem",
+              `[mem?] recalled ${recalled.length} fact${recalled.length > 1 ? "s" : ""} · top: "${top.fact}" (${(top.score * 100).toFixed(0)}%)`,
+            );
+          }
+        },
+        onToken: (t) => {
+          acc += t;
+          streamer?.push(t);
+          setPhase("streaming");
+          setStreamText(acc);
+        },
+        onDone: ({ remembered }) => {
+          settled = true;
+          streamer?.flush();
+          if (acc) push("echo", `echo> ${acc}`);
+          for (const m of remembered) push("mem", `[mem+] stored: "${m.fact}"`);
+          setStreamText(null);
+          setPhase("idle");
+          getStatus().then(setStatus).catch(() => {});
+        },
+        onError: (message) => {
+          settled = true;
+          streamer?.stop(); // don't speak a broken tail
+          if (acc) push("echo", `echo> ${acc}`);
+          push("err", `[err] ${message}`);
+          setStreamText(null);
+          setPhase("idle");
+        },
+      });
+      return true;
+    } finally {
+      // Whatever happened above — an exception, or a stream that ended without
+      // a done/error event — the terminal must never wedge: input always returns.
+      if (!settled) {
+        streamer?.stop();
         if (acc) push("echo", `echo> ${acc}`);
-        for (const m of remembered) push("mem", `[mem+] stored: "${m.fact}"`);
+        push("err", "[err] stream ended unexpectedly");
         setStreamText(null);
         setPhase("idle");
-        getStatus().then(setStatus).catch(() => {});
-      },
-      onError: (message) => {
-        streamer?.flush();
-        if (acc) push("echo", `echo> ${acc}`);
-        push("err", `[err] ${message}`);
-        setStreamText(null);
-        setPhase("idle");
-      },
-    });
-    busy.current = false;
+      }
+      busy.current = false;
+    }
   };
 
   const submit = () => {
     const msg = input;
     setInput("");
-    void send(msg);
+    void send(msg).then((ok) => {
+      if (!ok && msg.trim()) setInput(msg); // rejected while busy — restore, never destroy
+    });
   };
 
   const state = listening
@@ -310,7 +341,7 @@ export function Terminal() {
           <button
             className={`bar-btn ${listening ? "on-amber" : ""}`}
             onClick={mic}
-            disabled={!stt.current.available() || phase === "boot"}
+            disabled={!stt.current.available() || phase !== "idle"}
             title={stt.current.available() ? "push to talk (Esc cancels)" : "SpeechRecognition unavailable"}
           >
             ◉ mic

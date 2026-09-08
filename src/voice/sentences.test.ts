@@ -60,6 +60,26 @@ describe("SentenceStreamer — speak while the model is still writing", () => {
     expect(out).toEqual(["The value is 3.14 which is pi and that is the whole story here."]);
   });
 
+  it("does not split at abbreviations like 'e.g.' mid-sentence", () => {
+    const { s, out } = collect();
+    s.push("There are many options, e.g. caching or memoization. Also see Dr. Smith for more.");
+    s.flush();
+    expect(out).toEqual([
+      "There are many options, e.g. caching or memoization.",
+      "Also see Dr. Smith for more.",
+    ]);
+  });
+
+  it("stop() mutes everything after it — Esc mid-reply must stay silent", () => {
+    const { s, out } = collect();
+    s.push("The first full sentence lands here. And then ");
+    expect(out).toHaveLength(1);
+    s.stop(); // Esc pressed
+    s.push("more tokens keep arriving. And another sentence. ");
+    s.flush();
+    expect(out).toHaveLength(1); // nothing after stop
+  });
+
   it("does not fire early when a token chunk happens to end at '3.'", () => {
     const { s, out } = collect();
     s.push("The value is 3."); // stream paused mid-number — NOT a sentence end

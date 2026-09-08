@@ -39,8 +39,10 @@ app.delete("/api/memory/:id", (req, res) => {
 });
 
 app.post("/api/chat", async (req, res) => {
-  const { sessionId, message } = req.body as { sessionId?: string; message?: string };
-  if (!sessionId || !message?.trim()) {
+  // Express 5 leaves req.body undefined for missing/non-JSON bodies — guard the
+  // shape explicitly so a bad request gets a 400 JSON, not a 500 HTML page.
+  const { sessionId, message } = (req.body ?? {}) as { sessionId?: unknown; message?: unknown };
+  if (typeof sessionId !== "string" || !sessionId || typeof message !== "string" || !message.trim()) {
     res.status(400).json({ error: "sessionId and message required" });
     return;
   }
