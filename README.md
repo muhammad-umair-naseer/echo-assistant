@@ -1,32 +1,139 @@
-# React + TypeScript + Vite
+# echo-assistant
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A voice + chat AI assistant with **real long-term memory**, styled as a CRT
+phosphor terminal. Tell it something today; open a fresh session next week and
+it remembers — not because the old conversation was replayed, but because the
+fact was extracted, embedded, and **retrieved**.
 
-Currently, two official plugins are available:
+React + Vite + TypeScript · Node + TypeScript · Groq (chat) · local embeddings
+(transformers.js) · SQLite · Vitest.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+> Phase 1 (memory brain) shipped · Phase 2 (voice) and Phase 3 (console polish +
+> memory inspector) upcoming.
 
-## React Compiler
+---
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## The hard problem: memory, not chat
 
-## Expanding the Oxlint configuration
+A chat wrapper is trivial. The interesting question is: **how does it remember
+what you said days ago without stuffing every past message into the prompt?**
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+### Why not just a big context window
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+1. **Windows are finite.** Weeks of conversation don't fit, and the day they
+   stop fitting, the assistant silently forgets everything past the horizon.
+2. **Cost grows linearly with history.** Replaying everything means paying for
+   the whole past on every single message.
+3. **Attention degrades.** Models are measurably worse at using facts buried in
+   the middle of a huge context ("lost in the middle") — more stuffing, worse
+   recall.
+
+### The architecture: retrieval-augmented memory
+
+```mermaid
+flowchart LR
+  U["user message"] --> E1["embed query<br/>(MiniLM, local, 384-d)"]
+  E1 --> R["cosine top-k over<br/>memories in SQLite"]
+  R --> P["inject k facts into<br/>system prompt"]
+  P --> LLM["Groq chat<br/>(streamed tokens)"]
+  LLM --> X["extract durable facts<br/>(LLM, or regex when keyless)"]
+  X --> E2["embed each fact"]
+  E2 --> D["dedup (cosine ≥ 0.92)<br/>persist in SQLite"]
+  D -.->|next message, any session| R
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+- **Write path** — after each exchange, durable facts ("my name is X", "I'm
+  building Y", "I prefer Z") are extracted from what the user said, embedded
+  **locally** with `all-MiniLM-L6-v2` via transformers.js (no API key, offline
+  after the first model fetch), deduplicated by cosine similarity, and persisted
+  in SQLite.
+- **Read path** — each incoming message is embedded; **every** stored memory is
+  scored by cosine similarity; only the **top-5 above a 0.25 floor** are
+  injected into the system prompt.
+
+Context stays **O(k) regardless of history length** — 5 relevant facts whether
+you have 10 memories or 10,000. Session transcripts are kept per-session for
+short-term coherence and are **never replayed across sessions**; only extracted
+memories cross the session boundary.
+
+Retrieval is exact brute-force cosine over all rows — at personal scale
+(hundreds to thousands of facts) that's simpler than an ANN index and always
+exact. Past ~10k vectors, `sqlite-vec`/HNSW is the drop-in swap.
+
+## The proof
+
+`cd backend && npm test` — the key assertion (`memory.test.ts`), no API key
+needed:
+
+1. Session 1: the user says *"My name is Ozymandias Vane, and I'm building a
+   submarine drone."* → facts extracted, embedded, stored. Connection closed.
+2. Session 2: **fresh connection, new session id, provably empty history**. Ask
+   *"what is my name?"*:
+   - **with retrieval** → the built prompt **contains** "Ozymandias" (pulled
+     from the vector store by similarity);
+   - **control, retrieval disabled** → identical prompt construction, and the
+     name is **nowhere in context**.
+
+That contrast is what makes the memory *real* rather than a long context window.
+A second test asserts **relevance** (asking "what project am I working on?"
+retrieves the drone fact, not the name fact), and a third asserts **dedup**.
+
+With a key present, a **live end-to-end test** runs the same scenario through
+the actual model: with memory injected it answers "Ozymandias Vane"; with the
+control prompt it cannot. (Verified passing.)
+
+In the UI, memory activity is visible inline as it happens:
+
+```
+you@echo:~$ what is my name, and what am I building?
+[mem?] recalled 2 facts · top: "My name is Ozymandias Vane and I'm building a submarine drone" (55%)
+echo> Your name is Ozymandias Vane, and you're building a submarine drone.
+```
+
+## Run it
+
+```bash
+npm install && (cd backend && npm install)
+cd backend && npm run server     # http://localhost:8790
+npm run dev                      # http://localhost:5199 — the terminal
+cd backend && npm test           # the memory proof (keyless)
+```
+
+Optional: `cp backend/.env.example backend/.env` and add your `GROQ_API_KEY`.
+**Everything runs without it** — chat degrades to a clear "add your key" state
+while fact extraction (regex heuristics), embedding, storage, retrieval and the
+memory proof all keep working.
+
+## Design decisions
+
+- **Local embeddings, not an embeddings API.** Groq serves chat only, and the
+  project must run keyless — so MiniLM runs in-process (384-d, ~23 MB, private,
+  free). The embedding model is swappable behind `embed()`.
+- **LLM fact extraction with a heuristic fallback.** With a key, the model
+  extracts facts (better coverage); without one, conservative regexes catch the
+  canonical patterns — so the hard part is demonstrable offline.
+- **Groq model is config, not code.** Groq rotates its catalogue (Llama 3.3 70B
+  was retired mid-build); the default is `openai/gpt-oss-120b` and `GROQ_MODEL`
+  overrides it.
+- **The terminal aesthetic is the app.** Green-phosphor CRT: scanlines, one slow
+  sweep, block cursor, boot sequence, token-by-token streaming (the typing IS
+  the data arriving). Reduced-motion collapses boot to instant and keeps the
+  cursor, which signals state.
+
+## Honest limitations
+
+- **Fact extraction is imperfect.** Heuristics miss rephrasings; the LLM
+  extractor can over- or under-extract. There's no contradiction resolution yet
+  ("I moved to Berlin" doesn't retire "I live in Lisbon" — both are stored and
+  both can be retrieved).
+- **No memory decay/consolidation.** Memories accumulate until deleted (the
+  Phase-3 inspector adds listing + deletion).
+- **Brute-force retrieval** is O(n) per message — right at personal scale, wrong
+  past ~10k memories (swap in sqlite-vec).
+- **Single user, single store, local only.** No auth, no multi-user isolation,
+  no cloud DB — out of scope by design.
+- **First model fetch needs the network** (~23 MB from HuggingFace). On networks
+  where the CDN stalls, fetch it manually:
+  `curl -L -o backend/data/models/Xenova/all-MiniLM-L6-v2/onnx/model_quantized.onnx https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx`
+- **Session transcripts grow unbounded** in SQLite (only the last 40 messages
+  are sent as context; older rows just sit there).
