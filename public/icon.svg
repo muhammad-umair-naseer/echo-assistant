@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#070c08"/>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#17402a" stroke-width="10"/>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#4af585" stroke-width="10"
+          stroke-dasharray="240 702" stroke-linecap="round" transform="rotate(-45 256 256)"/>
+  <circle cx="256" cy="256" r="110" fill="none" stroke="#2c7a4b" stroke-width="6"
+          stroke-dasharray="160 531" stroke-linecap="round" transform="rotate(140 256 256)"/>
+  <text x="256" y="290" font-family="Menlo, monospace" font-size="96" font-weight="700"
+        fill="#4af585" text-anchor="middle" letter-spacing="6">J_</text>
+</svg>
