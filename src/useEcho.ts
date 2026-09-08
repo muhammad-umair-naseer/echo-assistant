@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   chat,
   getStatus,
+  importMemories,
   listMemories,
   removeMemory,
   type MemoryItem,
@@ -337,6 +338,21 @@ export function useEcho() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wakeOn, status?.hasKey]);
 
+  const importFromFile = useCallback(
+    async (file: File) => {
+      try {
+        const items = JSON.parse(await file.text()) as { fact: string }[];
+        const res = await importMemories(items);
+        push({ role: "sys", text: `imported ${res.imported} memories from ${file.name}` });
+        refreshMemories();
+        refreshStatus();
+      } catch (err) {
+        push({ role: "err", text: `import failed: ${(err as Error).message}` });
+      }
+    },
+    [push, refreshMemories, refreshStatus],
+  );
+
   const deleteMemory = useCallback(
     async (id: number) => {
       const ok = await removeMemory(id).catch(() => false);
@@ -383,6 +399,7 @@ export function useEcho() {
     mic,
     toggleVoice,
     deleteMemory,
+    importFromFile,
     cancelVoice,
   };
 }

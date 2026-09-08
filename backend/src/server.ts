@@ -12,7 +12,7 @@
 import express from "express";
 import { addMessage, allMemories, deleteMemory, openDb, sessionMessages } from "./db.ts";
 import { buildSystemPrompt, extractFactsHeuristic, remember } from "./memory.ts";
-import { extractFactsLLM, hasKey, MODEL, streamChatEvents, type ChatMessage } from "./llm.ts";
+import { extractFactsLLM, hasKey, judgeSupersede, MODEL, streamChatEvents, type ChatMessage } from "./llm.ts";
 import { execTool, TOOL_DEFS, type ToolCall } from "./tools.ts";
 
 const PORT = Number(process.env.PORT ?? 8790);
@@ -99,8 +99,35 @@ app.post("/api/transcribe", express.raw({ type: () => true, limit: "20mb" }), as
 
 app.get("/api/memory", (_req, res) => {
   res.json(
-    allMemories(db).map((m) => ({ id: m.id, fact: m.fact, source: m.source, created_at: m.created_at })),
+    allMemories(db).map((m) => ({
+      id: m.id,
+      fact: m.fact,
+      source: m.source,
+      category: m.category,
+      created_at: m.created_at,
+    })),
   );
+});
+
+/** Export the whole memory bank as portable JSON. */
+app.get("/api/memory/export", (_req, res) => {
+  res.setHeader("content-disposition", "attachment; filename=jarvis-memories.json");
+  res.json(allMemories(db).map((m) => ({ fact: m.fact, category: m.category, created_at: m.created_at })));
+});
+
+/** Import memories (JSON array of {fact, category?}) through the normal
+ *  remember() path — embedded, deduped, contradiction-checked. */
+app.post("/api/memory/import", async (req, res) => {
+  const body = req.body as unknown;
+  if (!Array.isArray(body)) {
+    res.status(400).json({ error: "expected a JSON array of {fact, category?}" });
+    return;
+  }
+  const facts = body
+    .filter((f): f is { fact: string; category?: string } => !!f && typeof (f as { fact?: unknown }).fact === "string")
+    .slice(0, 500);
+  const stored = await remember(db, facts, "import");
+  res.json({ imported: stored.length, skippedAsDuplicate: facts.length - stored.length });
 });
 
 app.delete("/api/memory/:id", (req, res) => {
@@ -165,7 +192,7 @@ app.post("/api/chat", async (req, res) => {
     addMessage(db, sessionId, "assistant", reply);
 
     // WRITE PATH — extract durable facts and persist them as embeddings.
-    let facts: string[];
+    let facts: (string | { fact: string; category?: string })[];
     let source = "heuristic";
     if (hasKey()) {
       try {
@@ -177,7 +204,7 @@ app.post("/api/chat", async (req, res) => {
     } else {
       facts = extractFactsHeuristic(message);
     }
-    const remembered = await remember(db, facts, source);
+    const remembered = await remember(db, facts, source, hasKey() ? judgeSupersede : undefined);
     send("done", { remembered });
   } catch (err) {
     send("error", { message: (err as Error).message });

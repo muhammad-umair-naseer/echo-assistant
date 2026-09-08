@@ -8,11 +8,14 @@ export interface Recalled {
 export interface Remembered {
   id: number;
   fact: string;
+  category?: string;
+  replaced?: string; // old fact this one superseded
 }
 export interface MemoryItem {
   id: number;
   fact: string;
   source: string;
+  category: string;
   created_at: string;
 }
 export interface Status {
@@ -37,6 +40,15 @@ export async function getStatus(): Promise<Status> {
 
 export async function listMemories(): Promise<MemoryItem[]> {
   return (await fetch("/api/memory")).json();
+}
+
+export async function importMemories(items: { fact: string; category?: string }[]): Promise<{ imported: number }> {
+  const res = await fetch("/api/memory/import", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(items),
+  });
+  return res.json();
 }
 
 export async function removeMemory(id: number): Promise<boolean> {

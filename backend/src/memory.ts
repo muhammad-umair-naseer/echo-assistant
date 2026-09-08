@@ -18,12 +18,27 @@
  * (sqlite-vec / HNSW) is the drop-in swap at ~10k+ vectors.
  */
 import type Database from "better-sqlite3";
-import { allMemories, embeddingOf, insertMemory } from "./db.ts";
+import { allMemories, deleteMemory, embeddingOf, insertMemory } from "./db.ts";
 import { cosine, embed } from "./embeddings.ts";
 
 export const TOP_K = 5;
 export const MIN_SCORE = 0.25; // below this, a memory is judged irrelevant to the query
 export const DUP_THRESHOLD = 0.92; // above this, a new fact is a duplicate of an existing one
+export const RELATED_THRESHOLD = 0.35; // candidates for contradiction judging (same subject-ish)
+
+export type MemoryCategory = "identity" | "preference" | "project" | "relationship" | "context" | "misc";
+
+/** Cheap keyless categorizer; the LLM extractor supplies categories when keyed. */
+export function categorize(fact: string): MemoryCategory {
+  const f = fact.toLowerCase();
+  if (/\b(name is|call(ed)? me|alias|born|birthday|i am from|i'm from|live[sd]? in|my age)\b/.test(f)) return "identity";
+  if (/\b(prefer|favorite|favourite|like[sd]?|love[sd]?|hate[sd]?|dislike|enjoy)\b/.test(f)) return "preference";
+  if (/\b(build(ing)?|working on|project|startup|app|repo|launch|ship)\b/.test(f)) return "project";
+  if (/\b(wife|husband|partner|sister|brother|mother|father|mom|dad|son|daughter|friend|dog|cat|pet)\b/.test(f))
+    return "relationship";
+  if (/\b(work|job|company|team|school|university|exam|deadline|moving|trip)\b/.test(f)) return "context";
+  return "misc";
+}
 
 export interface RecalledMemory {
   id: number;
@@ -63,23 +78,72 @@ export function extractFactsHeuristic(userMessage: string): string[] {
   return [...facts];
 }
 
-/** Store facts, skipping near-duplicates of existing memories. Returns stored rows. */
+export interface StoredFact {
+  id: number;
+  fact: string;
+  category: string;
+  replaced?: string; // the old fact this one superseded (contradiction resolution)
+}
+
+/** Decides which existing memories a new fact SUPERSEDES. Injected by the
+ *  server (an LLM judge when a key exists); memory.ts itself stays model-free.
+ *  Measured reality: contradictions are NOT detectable by embedding similarity —
+ *  cosine("I live in Lisbon", "I live in Berlin") is only ~0.48, the same range
+ *  as merely-related facts — so similarity picks CANDIDATES and the judge
+ *  decides. Without a judge (keyless), contradictions accumulate (documented). */
+export type SupersedeJudge = (newFact: string, candidates: { id: number; fact: string }[]) => Promise<number[]>;
+
+/**
+ * Store facts: exact-ish duplicates (cosine >= 0.92) are skipped; related
+ * existing memories (cosine >= 0.35, top 3) are offered to the supersede judge,
+ * and any it rules contradicted are deleted and reported as `replaced`.
+ */
 export async function remember(
   db: Database.Database,
-  facts: string[],
+  facts: (string | { fact: string; category?: string })[],
   source: string,
-): Promise<{ id: number; fact: string }[]> {
+  judge?: SupersedeJudge,
+): Promise<StoredFact[]> {
   if (facts.length === 0) return [];
   const existing = allMemories(db).map((r) => ({ row: r, vec: embeddingOf(r) }));
-  const stored: { id: number; fact: string }[] = [];
-  for (const fact of facts) {
+  const stored: StoredFact[] = [];
+  for (const raw of facts) {
+    const fact = typeof raw === "string" ? raw : raw.fact;
+    const category = (typeof raw === "string" ? undefined : raw.category) ?? categorize(fact);
     const vec = await embed(fact);
     // Dedup against DB rows AND facts stored earlier in this same call
     // (`existing` grows as we insert).
-    if (existing.some((e) => cosine(vec, e.vec) >= DUP_THRESHOLD)) continue;
-    const id = insertMemory(db, fact, vec, source);
-    existing.push({ row: { id, fact, embedding: Buffer.from(vec.buffer.slice(0)), source, created_at: "" }, vec });
-    stored.push({ id, fact });
+    const scored = existing
+      .map((e, i) => ({ i, c: cosine(vec, e.vec) }))
+      .sort((a, b) => b.c - a.c);
+    if ((scored[0]?.c ?? 0) >= DUP_THRESHOLD) continue;
+
+    let replaced: string | undefined;
+    if (judge) {
+      const candidates = scored
+        .filter((s2) => s2.c >= RELATED_THRESHOLD)
+        .slice(0, 3)
+        .map((s2) => ({ id: existing[s2.i]!.row.id, fact: existing[s2.i]!.row.fact }));
+      if (candidates.length > 0) {
+        const retire = await judge(fact, candidates).catch(() => [] as number[]);
+        const retired = candidates.filter((c) => retire.includes(c.id));
+        if (retired.length > 0) {
+          replaced = retired.map((r) => r.fact).join(" · ");
+          for (const r of retired) {
+            deleteMemory(db, r.id);
+            const idx = existing.findIndex((e) => e.row.id === r.id);
+            if (idx >= 0) existing.splice(idx, 1);
+          }
+        }
+      }
+    }
+
+    const id = insertMemory(db, fact, vec, source, category);
+    existing.push({
+      row: { id, fact, embedding: Buffer.from(vec.buffer.slice(0)), source, category, created_at: "" },
+      vec,
+    });
+    stored.push({ id, fact, category, ...(replaced ? { replaced } : {}) });
   }
   return stored;
 }

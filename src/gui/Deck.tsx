@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useEcho, type EchoState, type Msg } from "../useEcho.ts";
 import type { MemoryItem } from "../api.ts";
 
@@ -150,21 +150,78 @@ function MemoryPanel({
   freshIds,
   flashIds,
   onDelete,
+  onImport,
 }: {
   memories: MemoryItem[];
   freshIds: number[];
   flashIds: number[];
   onDelete: (id: number) => void;
+  onImport: (file: File) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const [cat, setCat] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const cats = useMemo(() => [...new Set(memories.map((m) => m.category))].sort(), [memories]);
+  const shown = useMemo(
+    () =>
+      [...memories]
+        .reverse()
+        .filter((m) => !cat || m.category === cat)
+        .filter((m) => !query.trim() || m.fact.toLowerCase().includes(query.trim().toLowerCase())),
+    [memories, cat, query],
+  );
+
   return (
     <section className="panel mem-panel">
       <header className="panel-head">
         <span>MEMORY BANK</span>
-        <span className="panel-count">{memories.length}</span>
+        <span className="mem-actions">
+          <a className="mem-io" href="/api/memory/export" download title="export as JSON">
+            ⤓
+          </a>
+          <button className="mem-io" onClick={() => fileRef.current?.click()} title="import JSON">
+            ⤒
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onImport(f);
+              e.target.value = "";
+            }}
+          />
+          <span className="panel-count">{memories.length}</span>
+        </span>
       </header>
+      <div className="mem-tools">
+        <input
+          className="mem-search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="search memories…"
+          spellCheck={false}
+        />
+        {cats.length > 1 && (
+          <div className="chip-row">
+            <button className={`chip ${cat === null ? "chip-on" : ""}`} onClick={() => setCat(null)}>
+              all
+            </button>
+            {cats.map((c) => (
+              <button key={c} className={`chip ${cat === c ? "chip-on" : ""}`} onClick={() => setCat(cat === c ? null : c)}>
+                {c}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="mem-list">
         {memories.length === 0 && <div className="mem-empty">empty — tell me something about yourself.</div>}
-        {[...memories].reverse().map((m) => (
+        {memories.length > 0 && shown.length === 0 && <div className="mem-empty">no matches.</div>}
+        {shown.map((m) => (
           <article
             key={m.id}
             className={`mem-card ${freshIds.includes(m.id) ? "fresh" : ""} ${flashIds.includes(m.id) ? "flash" : ""}`}
@@ -173,7 +230,7 @@ function MemoryPanel({
             <p>{m.fact}</p>
             <footer>
               <span>
-                #{m.id} · {m.source} · {m.created_at.slice(0, 10)}
+                #{m.id} · <b className="mem-cat">{m.category}</b> · {m.source} · {m.created_at.slice(0, 10)}
               </span>
               <button className="mem-del" onClick={() => onDelete(m.id)} title="forget this" aria-label={`delete memory ${m.id}`}>
                 ✕
@@ -223,8 +280,8 @@ function MessageCard({ m, onChipClick }: { m: Msg; onChipClick: (ids: number[]) 
         {m.remembered && m.remembered.length > 0 && (
           <div className="chip-row">
             {m.remembered.map((r) => (
-              <button key={r.id} className="chip chip-stored" onClick={() => onChipClick([r.id])} title="show in memory bank">
-                +mem “{r.fact.slice(0, 36)}
+              <button key={r.id} className="chip chip-stored" onClick={() => onChipClick([r.id])} title={r.replaced ? `replaced: "${r.replaced}"` : "show in memory bank"}>
+                {r.replaced ? "~mem updated" : "+mem"} “{r.fact.slice(0, 36)}
                 {r.fact.length > 36 ? "…" : ""}”
               </button>
             ))}
@@ -443,6 +500,7 @@ export function Deck() {
                 freshIds={echo.recentMemIds}
                 flashIds={flashIds}
                 onDelete={(id) => void echo.deleteMemory(id)}
+                onImport={(f) => void echo.importFromFile(f)}
               />
             </div>
           </aside>

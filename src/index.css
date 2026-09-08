@@ -483,3 +483,23 @@ body {
 
 /* tool chips: cool cyan-green, non-interactive */
 .chip-tool { color: #6be5c8; border-color: rgba(107, 229, 200, 0.35); cursor: default; }
+
+/* memory panel tools */
+.mem-actions { display: flex; align-items: center; gap: 8px; }
+.mem-io {
+  font-family: inherit; font-size: 13px; line-height: 1; text-decoration: none;
+  color: var(--phosphor-dim); background: transparent; border: 1px solid var(--phosphor-faint);
+  border-radius: 5px; padding: 2px 7px; cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out-expo), border-color var(--dur-fast) var(--ease-out-expo);
+}
+.mem-io:hover, .mem-io:focus-visible { color: var(--phosphor); border-color: var(--phosphor-dim); outline: none; }
+.mem-tools { padding: 8px 10px 0; display: flex; flex-direction: column; gap: 8px; }
+.mem-search {
+  font: inherit; font-size: 12px; color: var(--phosphor);
+  background: transparent; border: 1px solid var(--phosphor-faint); border-radius: 7px;
+  padding: 5px 9px; outline: none;
+}
+.mem-search:focus-visible { border-color: var(--phosphor-dim); }
+.mem-search::placeholder { color: var(--phosphor-faint); }
+.chip-on { color: var(--phosphor); border-color: var(--phosphor-dim); background: rgba(74, 245, 133, 0.07); }
+.mem-cat { color: var(--phosphor-dim); font-weight: 400; font-style: italic; }

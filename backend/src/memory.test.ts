@@ -123,3 +123,49 @@ describe("tools", () => {
     expect(bad.clientAction).toBeUndefined();
   });
 });
+
+describe("memory upgrades", () => {
+  it.skipIf(!hasKey())("LLM judge retires a contradicted fact — one truth remains", async () => {
+    const db = openDb(tmpDb());
+    const { judgeSupersede } = await import("./llm.ts");
+    await remember(db, ["I live in Lisbon"], "test", judgeSupersede);
+    const second = await remember(db, ["I live in Berlin now"], "test", judgeSupersede);
+    expect(second).toHaveLength(1);
+    expect(second[0]!.replaced).toContain("Lisbon"); // old truth retired by the judge
+    const all = await recall(db, "where do I live?", 5);
+    const texts = all.map((m) => m.fact).join(" | ");
+    expect(texts).toContain("Berlin");
+    expect(texts).not.toContain("Lisbon");
+    db.close();
+  }, 120_000);
+
+  it.skipIf(!hasKey())("LLM judge does NOT retire merely-related facts", async () => {
+    const db = openDb(tmpDb());
+    const { judgeSupersede } = await import("./llm.ts");
+    await remember(db, ["my dog is called Biscuit"], "test", judgeSupersede);
+    const second = await remember(db, ["my dog just turned three years old"], "test", judgeSupersede);
+    expect(second).toHaveLength(1);
+    expect(second[0]!.replaced).toBeUndefined(); // age fact doesn't replace the name fact
+    const { allMemories } = await import("./db.ts");
+    expect(allMemories(db)).toHaveLength(2);
+    db.close();
+  }, 120_000);
+
+  it("keeps genuinely different facts side by side (no false supersede)", async () => {
+    const db = openDb(tmpDb());
+    await remember(db, ["my dog is called Biscuit"], "test");
+    const second = await remember(db, ["I'm building a submarine drone"], "test");
+    expect(second[0]!.replaced).toBeUndefined();
+    const { allMemories } = await import("./db.ts");
+    expect(allMemories(db)).toHaveLength(2);
+    db.close();
+  }, 120_000);
+
+  it("categorizes facts heuristically", async () => {
+    const { categorize } = await import("./memory.ts");
+    expect(categorize("my name is Ada")).toBe("identity");
+    expect(categorize("I prefer tabs over spaces")).toBe("preference");
+    expect(categorize("I'm building a submarine drone")).toBe("project");
+    expect(categorize("my dog is called Biscuit")).toBe("relationship");
+  });
+});

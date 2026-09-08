@@ -107,13 +107,13 @@ export async function completeOnce(messages: ChatMessage[], maxTokens = 300): Pr
 
 const EXTRACT_PROMPT =
   "Extract durable facts about the user from their message — things worth " +
-  "remembering across sessions (name, projects, preferences, relationships, " +
-  "circumstances). Return a JSON array of short standalone strings, each " +
-  'phrased about the user (e.g. ["user\'s name is Ada"]). Return [] if there is ' +
-  "nothing durable. JSON only.";
+  "remembering across sessions. Return a JSON array of objects " +
+  '{"fact": string, "category": "identity"|"preference"|"project"|"relationship"|"context"|"misc"}, ' +
+  'each fact short and phrased about the user (e.g. {"fact":"user\'s name is Ada","category":"identity"}). ' +
+  "Return [] if there is nothing durable. JSON only.";
 
-/** LLM-based fact extraction. Throws on any failure; caller falls back to heuristics. */
-export async function extractFactsLLM(userMessage: string): Promise<string[]> {
+/** LLM-based fact extraction (with categories). Throws on failure; caller falls back to heuristics. */
+export async function extractFactsLLM(userMessage: string): Promise<{ fact: string; category?: string }[]> {
   const raw = await completeOnce([
     { role: "system", content: EXTRACT_PROMPT },
     { role: "user", content: userMessage },
@@ -122,5 +122,45 @@ export async function extractFactsLLM(userMessage: string): Promise<string[]> {
   if (!match) return [];
   const arr = JSON.parse(match[0]) as unknown;
   if (!Array.isArray(arr)) return [];
-  return arr.filter((f): f is string => typeof f === "string" && f.length >= 4 && f.length <= 200);
+  const CATS = new Set(["identity", "preference", "project", "relationship", "context", "misc"]);
+  return arr
+    .map((f) =>
+      typeof f === "string"
+        ? { fact: f }
+        : f && typeof f === "object" && typeof (f as { fact?: unknown }).fact === "string"
+          ? {
+              fact: (f as { fact: string }).fact,
+              category: CATS.has(String((f as { category?: unknown }).category)) ? String((f as { category?: unknown }).category) : undefined,
+            }
+          : null,
+    )
+    .filter((f): f is { fact: string; category?: string } => !!f && f.fact.length >= 4 && f.fact.length <= 200);
+}
+
+const SUPERSEDE_PROMPT =
+  "A user stated a NEW fact. Given EXISTING remembered facts, decide which " +
+  "existing facts the new one REPLACES (same attribute of the same subject, " +
+  "value changed — e.g. moved cities, renamed, changed preference). Unrelated " +
+  "or merely similar facts are NOT replaced. Reply with JSON only: " +
+  '{"replaces": [ids]} — an empty array if none.';
+
+/** LLM judge for contradiction resolution. Returns ids of retired facts. */
+export async function judgeSupersede(
+  newFact: string,
+  candidates: { id: number; fact: string }[],
+): Promise<number[]> {
+  const raw = await completeOnce(
+    [
+      { role: "system", content: SUPERSEDE_PROMPT },
+      {
+        role: "user",
+        content: `NEW: ${newFact}\nEXISTING:\n${candidates.map((c) => `#${c.id}: ${c.fact}`).join("\n")}`,
+      },
+    ],
+    400,
+  );
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) return [];
+  const parsed = JSON.parse(m[0]) as { replaces?: unknown };
+  return Array.isArray(parsed.replaces) ? parsed.replaces.filter((x): x is number => Number.isInteger(x)) : [];
 }

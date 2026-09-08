@@ -18,6 +18,7 @@ export interface MemoryRow {
   fact: string;
   embedding: Buffer;
   source: string;
+  category: string;
   created_at: string;
 }
 
@@ -48,9 +49,16 @@ export function openDb(path = process.env.ECHO_DB ?? DEFAULT_PATH): Database.Dat
       fact TEXT NOT NULL,
       embedding BLOB NOT NULL,
       source TEXT NOT NULL DEFAULT 'heuristic',
+      category TEXT NOT NULL DEFAULT 'misc',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+  // migration for databases created before categories existed
+  try {
+    db.exec("ALTER TABLE memories ADD COLUMN category TEXT NOT NULL DEFAULT 'misc'");
+  } catch {
+    /* column already there */
+  }
   return db;
 }
 
@@ -65,10 +73,16 @@ export function sessionMessages(db: Database.Database, sessionId: string, limit 
   return rows.reverse();
 }
 
-export function insertMemory(db: Database.Database, fact: string, embedding: Float32Array, source: string): number {
+export function insertMemory(
+  db: Database.Database,
+  fact: string,
+  embedding: Float32Array,
+  source: string,
+  category = "misc",
+): number {
   const res = db
-    .prepare("INSERT INTO memories (fact, embedding, source) VALUES (?, ?, ?)")
-    .run(fact, Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength), source);
+    .prepare("INSERT INTO memories (fact, embedding, source, category) VALUES (?, ?, ?, ?)")
+    .run(fact, Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength), source, category);
   return Number(res.lastInsertRowid);
 }
 
