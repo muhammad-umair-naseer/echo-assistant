@@ -114,9 +114,19 @@ function Splash({
 
 /* ================= voice orb ============================================== */
 
-function VoiceOrb({ state, onClick, disabled }: { state: EchoState; onClick: () => void; disabled: boolean }) {
+function VoiceOrb({
+  state,
+  armed,
+  onClick,
+  disabled,
+}: {
+  state: EchoState;
+  armed?: boolean;
+  onClick: () => void;
+  disabled: boolean;
+}) {
   return (
-    <button className={`orb st-${state}`} onClick={onClick} disabled={disabled} aria-label="push to talk">
+    <button className={`orb st-${state} ${armed ? "armed" : ""}`} onClick={onClick} disabled={disabled} aria-label="push to talk">
       <span className="orb-ring r1" />
       <span className="orb-ring r2" />
       <span className="orb-core">
@@ -292,6 +302,14 @@ export function Deck() {
           <button className={`pill pill-btn ${echo.voiceOn ? "pill-ok" : ""}`} onClick={echo.toggleVoice}>
             voice:{echo.voiceOn ? "on" : "off"}
           </button>
+          <button
+            className={`pill pill-btn ${echo.wakeOn ? "pill-warn" : ""}`}
+            onClick={echo.toggleWake}
+            disabled={!echo.wakeAvailable}
+            title={echo.wakeAvailable ? 'hands-free: say "Jarvis, …"' : "wake word needs the Groq key (whisper)"}
+          >
+            wake:{echo.wakeOn ? "on" : "off"}
+          </button>
         </header>
 
         <main className="deck-main">
@@ -381,7 +399,13 @@ export function Deck() {
 
           <aside className="deck-aside">
             <section className="panel orb-panel" style={{ ["--i" as string]: 2 }}>
-              <VoiceOrb state={echo.state} onClick={echo.mic} disabled={!echo.sttAvailable || echo.phase !== "idle"} />
+              <VoiceOrb
+                state={echo.state}
+                armed={echo.wakeOn}
+                onClick={echo.mic}
+                disabled={!echo.sttAvailable || echo.phase !== "idle"}
+              />
+              {echo.wakeOn && <div className="orb-hint">say “Jarvis, …”</div>}
             </section>
             <section className="panel status-panel" style={{ ["--i" as string]: 3 }}>
               <header className="panel-head">SYSTEM</header>

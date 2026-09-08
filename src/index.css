@@ -476,3 +476,7 @@ body {
   .orb.st-speaking .orb-bars i, .orb.st-streaming .orb-bars i { animation: none; transform: scaleY(2); }
   .thinking-row, .mic-btn.live { animation: none; }
 }
+
+/* wake mode: a faint amber standby ring + hint */
+.orb.armed .orb-ring.r2 { border-color: rgba(255, 180, 84, 0.4); }
+.orb-hint { margin-top: 10px; font-size: 10.5px; letter-spacing: 0.1em; color: var(--amber); opacity: 0.75; }

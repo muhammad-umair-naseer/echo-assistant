@@ -19,6 +19,7 @@ import { SentenceStreamer } from "./voice/sentences.ts";
 import { WebSpeechStt, WebSpeechTts } from "./voice/webSpeech.ts";
 import { GroqWhisperStt } from "./voice/groqWhisper.ts";
 import { ElevenLabsTts } from "./voice/elevenLabs.ts";
+import { WakeListener } from "./voice/wakeWord.ts";
 
 export type Role = "user" | "echo" | "sys" | "err";
 export interface Msg {
@@ -45,6 +46,7 @@ export function useEcho() {
   const [speaking, setSpeaking] = useState(0);
   const [voiceOn, setVoiceOn] = useState(() => localStorage.getItem("echo-voice") === "1");
   const [statusSettled, setStatusSettled] = useState(false); // the splash gates on real readiness
+  const [wakeOn, setWakeOn] = useState(() => localStorage.getItem("echo-wake") === "1");
 
   const sessionId = useRef<string>(crypto.randomUUID());
   const webStt = useRef(new WebSpeechStt());
@@ -55,6 +57,7 @@ export function useEcho() {
   const tts = useRef<WebSpeechTts | ElevenLabsTts>(webTts.current);
   const busy = useRef(false);
   const activeStreamer = useRef<SentenceStreamer | null>(null);
+  const wake = useRef(new WakeListener());
 
   const push = useCallback((m: Omit<Msg, "id">): number => {
     const id = nextId++;
@@ -276,6 +279,53 @@ export function useEcho() {
     });
   }, [sttEngine, phase, listening, silenceAll, send, push]);
 
+  // ---- wake word ("Jarvis, ...") + barge-in --------------------------------
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  const speakingRef = useRef(false);
+  speakingRef.current = speaking > 0;
+  const voiceOnRef = useRef(voiceOn);
+  voiceOnRef.current = voiceOn;
+
+  const wakeAvailable = wake.current.available() && !!status?.hasKey; // needs whisper
+  const toggleWake = useCallback(() => {
+    setWakeOn((w) => {
+      const next = !w;
+      localStorage.setItem("echo-wake", next ? "1" : "0");
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!wakeOn || !status?.hasKey || !wake.current.available()) {
+      wake.current.stop();
+      return;
+    }
+    const listener = wake.current;
+    void listener.start({
+      onSpeechStart: () => {
+        // barge-in: the moment you start talking, JARVIS stops talking.
+        if (speakingRef.current) silenceAll();
+      },
+      onCommand: (text) => {
+        void sendRef.current(text).then((ok) => {
+          if (!ok) push({ role: "sys", text: `(busy — wake command dropped: "${text}")` });
+        });
+      },
+      onWakeOnly: () => {
+        push({ role: "sys", text: "[wake] yes? — listening for a follow-up" });
+        if (voiceOnRef.current) tts.current.speak("Yes?");
+      },
+      onError: (msg) => {
+        push({ role: "err", text: `wake: ${msg}` });
+        setWakeOn(false);
+        localStorage.setItem("echo-wake", "0");
+      },
+    });
+    return () => listener.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wakeOn, status?.hasKey]);
+
   const deleteMemory = useCallback(
     async (id: number) => {
       const ok = await removeMemory(id).catch(() => false);
@@ -315,6 +365,9 @@ export function useEcho() {
     sttAvailable,
     sttName,
     ttsName,
+    wakeOn,
+    wakeAvailable,
+    toggleWake,
     send,
     mic,
     toggleVoice,
