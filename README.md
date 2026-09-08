@@ -1,9 +1,10 @@
-# echo-assistant
+# echo-assistant · JARVIS
 
-A voice + chat AI assistant with **real long-term memory**, styled as a CRT
-phosphor terminal. Tell it something today; open a fresh session next week and
-it remembers — not because the old conversation was replayed, but because the
-fact was extracted, embedded, and **retrieved**.
+**JARVIS** — a voice + chat AI assistant with **real long-term memory**, an
+animated CRT command-deck GUI, a wake word, and tools. Tell it something today;
+open a fresh session next week and it remembers — not because the old
+conversation was replayed, but because the fact was extracted, embedded, and
+**retrieved**.
 
 React + Vite + TypeScript · Node + TypeScript · Groq (chat) · local embeddings
 (transformers.js) · SQLite · Vitest.
@@ -104,6 +105,32 @@ Optional: `cp backend/.env.example backend/.env` and add your `GROQ_API_KEY`.
 **Everything runs without it** — chat degrades to a clear "add your key" state
 while fact extraction (regex heuristics), embedding, storage, retrieval and the
 memory proof all keep working.
+
+## Beyond the core — what else it does
+
+- **Wake word** — toggle `wake:on` and say *“Jarvis, …”* hands-free. A WebAudio
+  RMS voice-activity detector segments speech locally; segments go through the
+  same Whisper endpoint; ambient talk without the word is ignored. A bare
+  *“Jarvis?”* answers *“Yes?”* and listens for a follow-up. **Barge-in**: start
+  talking while it speaks and TTS cuts out.
+- **Tools** — function calling over Groq streaming: `get_time`, `get_weather`
+  (open-meteo), `web_search` (DuckDuckGo instant answers), `open_url` (validated
+  server-side, opened client-side). Each call shows as a ⚙ chip on the reply.
+- **Contradiction resolution** — measured fact: embeddings CANNOT detect
+  contradictions (cosine of “I live in Lisbon” vs “I live in Berlin” ≈ 0.48), so
+  similarity only proposes candidates and an **LLM judge** decides what a new
+  fact retires; corrections show as `~mem updated` chips. Keyless mode
+  accumulates both truths (documented).
+- **Memory bank tools** — categories (identity/preference/project/relationship/
+  context) with filter chips, search, one-click **export** to JSON and
+  **import** through the full embed/dedup/judge pipeline.
+- **Session history** — the `history` pill lists past conversations; click one
+  to reload its transcript and *resume its context*.
+- **Premium voice (optional)** — add `ELEVENLABS_API_KEY` to `backend/.env` and
+  replies speak through ElevenLabs (FIFO-queued per sentence) instead of the
+  browser voice.
+- **Installable app** — a PWA: Chrome’s install button puts JARVIS in the dock
+  with its own window (a native Tauri wrapper needs Rust).
 
 ## The interface — the command deck
 
