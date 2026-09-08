@@ -26,3 +26,6 @@ dist-ssr
 # secrets + local state
 backend/.env
 backend/data/
+
+# electron packaging output
+dist-app/
