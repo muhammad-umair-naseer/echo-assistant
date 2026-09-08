@@ -32,7 +32,12 @@ export class WebSpeechStt implements SttProvider {
     return !!Recognition;
   }
 
-  start(cb: { onPartial: (t: string) => void; onFinal: (t: string) => void; onEnd: () => void }): void {
+  start(cb: {
+    onPartial: (t: string) => void;
+    onFinal: (t: string) => void;
+    onEnd: () => void;
+    onError?: (code: string) => void;
+  }): void {
     if (!Recognition) return cb.onEnd();
     const rec = new Recognition();
     this.rec = rec;
@@ -41,16 +46,23 @@ export class WebSpeechStt implements SttProvider {
     rec.continuous = false; // push-to-talk: one utterance per activation
     let finalText = "";
     rec.onresult = (ev) => {
+      // Each event carries the FULL results list — rebuild the transcript from
+      // scratch every time (appending across events duplicates finals).
       let interim = "";
+      let final = "";
       for (let i = 0; i < ev.results.length; i++) {
         const r = ev.results[i]!;
-        if (r.isFinal) finalText += r[0].transcript;
+        if (r.isFinal) final += r[0].transcript;
         else interim += r[0].transcript;
       }
-      if (interim) cb.onPartial(finalText + interim);
+      finalText = final;
+      if (final || interim) cb.onPartial(`${final}${interim}`);
     };
-    rec.onerror = () => {
-      /* no-speech / aborted → onend follows and cleans up */
+    rec.onerror = (ev) => {
+      // 'no-speech' (silence timeout) and 'aborted' (our cancel) are normal;
+      // everything else the user must SEE — Chrome STT is a Google-server call
+      // and can fail on network alone while the mic itself works fine.
+      if (ev.error !== "no-speech" && ev.error !== "aborted") cb.onError?.(ev.error);
     };
     rec.onend = () => {
       this.rec = null;

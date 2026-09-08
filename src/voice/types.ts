@@ -10,9 +10,15 @@ export interface SttProvider {
   /**
    * Start capturing. `onPartial` fires with live interim text (may revise),
    * `onFinal` once with the settled transcript, `onEnd` when capture stops
-   * (final, cancel, error, or silence timeout).
+   * (final, cancel, error, or silence timeout). `onError` surfaces recognizer
+   * failures (network, not-allowed, audio-capture…) — they must never be silent.
    */
-  start(cb: { onPartial: (text: string) => void; onFinal: (text: string) => void; onEnd: () => void }): void;
+  start(cb: {
+    onPartial: (text: string) => void;
+    onFinal: (text: string) => void;
+    onEnd: () => void;
+    onError?: (code: string) => void;
+  }): void;
   /** Stop capturing; a final result may still fire for audio already heard. */
   stop(): void;
   cancel(): void;

@@ -157,6 +157,17 @@ export function Terminal() {
         void send(t).then((ok) => {
           if (!ok) push("sys", `(busy — voice input dropped: "${t}")`); // never silent
         }),
+      onError: (code) => {
+        const why: Record<string, string> = {
+          network:
+            "speech service unreachable — Chrome's recognizer sends audio to Google's servers; check network/VPN/firewall",
+          "not-allowed": "microphone permission denied — allow it for this site in the browser",
+          "service-not-allowed": "this browser blocks the speech service (Brave/untethered Chromium have no recognizer)",
+          "audio-capture": "no usable microphone found",
+          "language-not-supported": "recognizer doesn't support the set language",
+        };
+        push("err", `[err] voice: ${why[code] ?? code}`);
+      },
       onEnd: () => {
         setListening(false);
         setInterim("");
