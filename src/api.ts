@@ -17,6 +17,7 @@ export interface MemoryItem {
 }
 export interface Status {
   hasKey: boolean;
+  hasTts: boolean;
   model: string;
   memories: number;
 }

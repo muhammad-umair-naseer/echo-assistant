@@ -25,7 +25,39 @@ const NO_KEY_REPLY =
   "are still being extracted, embedded and stored.";
 
 app.get("/api/status", (_req, res) => {
-  res.json({ hasKey: hasKey(), model: MODEL, memories: allMemories(db).length });
+  res.json({ hasKey: hasKey(), hasTts: hasTtsKey(), model: MODEL, memories: allMemories(db).length });
+});
+
+// ---- ElevenLabs TTS (optional key; browser speechSynthesis is the fallback) --
+const hasTtsKey = () => !!process.env.ELEVENLABS_API_KEY;
+const EL_VOICE = process.env.ELEVENLABS_VOICE ?? "onwK4e9ZLuTAKqWW03F9"; // "Daniel" — composed, JARVIS-adjacent
+
+/** Text → mp3 bytes via ElevenLabs. One sentence per call (the client queues). */
+app.post("/api/tts", async (req, res) => {
+  if (!hasTtsKey()) {
+    res.status(400).json({ error: "no ELEVENLABS_API_KEY" });
+    return;
+  }
+  const { text } = (req.body ?? {}) as { text?: unknown };
+  if (typeof text !== "string" || !text.trim() || text.length > 800) {
+    res.status(400).json({ error: "text required (<=800 chars)" });
+    return;
+  }
+  try {
+    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${EL_VOICE}?output_format=mp3_22050_32`, {
+      method: "POST",
+      headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY!, "content-type": "application/json" },
+      body: JSON.stringify({ text, model_id: "eleven_turbo_v2_5" }),
+    });
+    if (!r.ok) {
+      res.status(502).json({ error: `elevenlabs ${r.status}: ${(await r.text().catch(() => "")).slice(0, 200)}` });
+      return;
+    }
+    res.setHeader("content-type", "audio/mpeg");
+    res.send(Buffer.from(await r.arrayBuffer()));
+  } catch (err) {
+    res.status(502).json({ error: `tts failed: ${(err as Error).message}` });
+  }
 });
 
 const STT_MODEL = process.env.GROQ_STT_MODEL ?? "whisper-large-v3-turbo";

@@ -400,7 +400,7 @@ export function Deck() {
                 </div>
                 <div>
                   <dt>tts</dt>
-                  <dd>{echo.voiceOn ? (echo.speaking ? "speaking" : "armed") : "off"}</dd>
+                  <dd>{echo.ttsName} · {echo.voiceOn ? (echo.speaking ? "speaking" : "armed") : "off"}</dd>
                 </div>
               </dl>
             </section>

@@ -18,6 +18,7 @@ import {
 import { SentenceStreamer } from "./voice/sentences.ts";
 import { WebSpeechStt, WebSpeechTts } from "./voice/webSpeech.ts";
 import { GroqWhisperStt } from "./voice/groqWhisper.ts";
+import { ElevenLabsTts } from "./voice/elevenLabs.ts";
 
 export type Role = "user" | "echo" | "sys" | "err";
 export interface Msg {
@@ -48,7 +49,10 @@ export function useEcho() {
   const sessionId = useRef<string>(crypto.randomUUID());
   const webStt = useRef(new WebSpeechStt());
   const whisper = useRef(new GroqWhisperStt());
-  const tts = useRef(new WebSpeechTts());
+  const webTts = useRef(new WebSpeechTts());
+  const elTts = useRef(new ElevenLabsTts());
+  // Active TTS engine: ElevenLabs when the backend has a key, else browser voice.
+  const tts = useRef<WebSpeechTts | ElevenLabsTts>(webTts.current);
   const busy = useRef(false);
   const activeStreamer = useRef<SentenceStreamer | null>(null);
 
@@ -84,6 +88,17 @@ export function useEcho() {
   );
   const sttAvailable = whisper.current.available() || webStt.current.available();
   const sttName = status?.hasKey && whisper.current.available() ? "whisper·groq" : "web speech";
+  const ttsName = status?.hasTts ? "elevenlabs" : "browser";
+
+  // Keep the active TTS engine in sync with backend capability (cancel the old
+  // one on switch so nothing keeps talking from the wrong voice).
+  useEffect(() => {
+    const next = status?.hasTts ? elTts.current : webTts.current;
+    if (tts.current !== next) {
+      tts.current.cancel();
+      tts.current = next;
+    }
+  }, [status?.hasTts]);
 
   const silenceAll = useCallback(() => {
     activeStreamer.current?.stop();
@@ -299,6 +314,7 @@ export function useEcho() {
     voiceOn,
     sttAvailable,
     sttName,
+    ttsName,
     send,
     mic,
     toggleVoice,
