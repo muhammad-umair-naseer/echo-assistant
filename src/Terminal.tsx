@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { chat, getStatus, type Status } from "./api.ts";
+import { chat, getStatus, listMemories, removeMemory, type Status } from "./api.ts";
 import { SentenceStreamer } from "./voice/sentences.ts";
 import { WebSpeechStt, WebSpeechTts } from "./voice/webSpeech.ts";
 
@@ -74,7 +74,7 @@ export function Terminal() {
       const st = await getStatus().catch(() => null);
       if (cancelled) return;
       setStatus(st);
-      await typeLine("sys", "ECHO ▮ personal assistant kernel v0.2.0");
+      await typeLine("sys", "ECHO ▮ personal assistant kernel v0.3.0");
       await typeLine("sys", `memory core ............ online (${st?.memories ?? 0} facts indexed)`);
       if (st?.hasKey) {
         await typeLine("sys", `llm link ............... ${st.model} via groq · online`);
@@ -88,7 +88,7 @@ export function Terminal() {
           ? "voice io ............... ready (◉ mic to talk · voice toggle for spoken replies)"
           : "voice io ............... unavailable in this browser (chat still works)",
       );
-      await typeLine("sys", "READY. type a message. (/commands arrive in phase 3)");
+      await typeLine("sys", "READY. type a message · /help for commands");
       if (!cancelled) setPhase("idle");
     })();
     return () => {
@@ -155,6 +155,68 @@ export function Terminal() {
     });
   };
 
+  /** The command palette. `/memory` makes the hard part VISIBLE: what the
+   *  assistant knows about you, where each fact came from, and a way to erase. */
+  const runCommand = async (raw: string) => {
+    const [cmd, sub, ...rest] = raw.slice(1).trim().split(/\s+/);
+    switch ((cmd ?? "").toLowerCase()) {
+      case "help":
+        push("sys", "┌─ ECHO commands ─────────────────────────────┐");
+        push("sys", "│ /memory        list everything I remember    │");
+        push("sys", "│ /memory rm <id>  delete one memory           │");
+        push("sys", "│ /voice         toggle spoken replies         │");
+        push("sys", "│ /clear         wipe screen + start a new     │");
+        push("sys", "│                session (memories survive)    │");
+        push("sys", "│ /help          this panel                    │");
+        push("sys", "└──────────────────────────────────────────────┘");
+        push("sys", "◉ mic = push-to-talk · Esc cancels voice");
+        break;
+
+      case "memory": {
+        if (sub === "rm" && rest[0]) {
+          const id = Number(rest[0]);
+          const ok = Number.isInteger(id) && (await removeMemory(id).catch(() => false));
+          push(ok ? "mem" : "err", ok ? `[mem-] deleted memory #${id}` : `[err] no memory #${rest[0]}`);
+          getStatus().then(setStatus).catch(() => {});
+          break;
+        }
+        const mems = await listMemories().catch(() => null);
+        if (!mems) {
+          push("err", "[err] backend unreachable");
+          break;
+        }
+        if (mems.length === 0) {
+          push("mem", "[memory] empty. tell me something about yourself.");
+          break;
+        }
+        push("mem", `[memory] ${mems.length} fact${mems.length > 1 ? "s" : ""} on file:`);
+        for (const m of mems) {
+          const date = m.created_at.slice(0, 10);
+          push("mem", `  #${String(m.id).padStart(3, " ")} ${m.fact}  · ${m.source} · ${date}`);
+        }
+        push("sys", "(/memory rm <id> deletes one)");
+        break;
+      }
+
+      case "voice":
+        toggleVoice();
+        push("sys", `voice replies ${voiceOn ? "off" : "on"}.`);
+        break;
+
+      case "clear": {
+        tts.current.cancel();
+        setSpeaking(0);
+        sessionId.current = crypto.randomUUID();
+        setLines([]);
+        push("sys", "session cleared — short-term context gone, long-term memory intact.");
+        break;
+      }
+
+      default:
+        push("err", `[err] unknown command: /${cmd} — try /help`);
+    }
+  };
+
   const send = async (raw: string) => {
     const msg = raw.trim();
     if (!msg || busy.current || phase === "boot") return;
@@ -162,7 +224,7 @@ export function Terminal() {
     push("user", `you@echo:~$ ${msg}`);
 
     if (msg.startsWith("/")) {
-      push("sys", "command palette ships in phase 3 — for now, just talk to it.");
+      await runCommand(msg);
       busy.current = false;
       return;
     }

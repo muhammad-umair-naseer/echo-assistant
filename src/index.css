@@ -190,3 +190,17 @@ body {
 .bar-btn:disabled { opacity: 0.35; cursor: default; }
 .bar-btn.on-green { color: var(--phosphor); border-color: var(--phosphor-dim); text-shadow: var(--glow); }
 .bar-btn.on-amber { color: var(--amber); border-color: var(--amber); }
+
+/* ---- power-on: the classic CRT vertical unfold, once, at load ---- */
+@keyframes power-on {
+  0% { opacity: 0; transform: scaleY(0.004); }
+  40% { opacity: 1; transform: scaleY(1.015); }
+  100% { transform: scaleY(1); }
+}
+.term {
+  animation: power-on 450ms var(--ease-out-expo);
+  transform-origin: 50% 42%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .term { animation: none; }
+}
